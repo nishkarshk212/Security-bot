@@ -36,8 +36,11 @@ ENV/
 bot_database.db
 *.db-journal
 
-# Environment variables (keep .env but warn)
-# .env
+# Environment variables (NEVER commit .env with real credentials)
+.env
+
+# Example env file (safe to commit)
+!.env.example
 
 # Logs
 *.log
