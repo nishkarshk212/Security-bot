@@ -148,4 +148,181 @@ For issues or questions, check the code comments or review the Telegram Bot API 
 ---
 
 **Enjoy your well-moderated Telegram groups!** 🎉
-# Security-bot
+# Security Bot 🛡️
+
+Advanced Telegram Group Moderation Bot with auto-restart, global ban system, and comprehensive moderation features.
+
+## ✨ Features
+
+### Moderation Features
+- 🚫 **Sticker Blocking** - Automatically delete sticker messages
+- ⭐ **Premium Sticker Blocking** - Block premium animated stickers
+- 📸 **Media Blocking** - Block photos, videos, documents, etc.
+- ↗️ **Forward Blocking** - Block forwarded messages
+- 🔗 **Link Blocking** - Block URLs and links
+- ⌨️ **Command Blocking** - Block user commands in groups
+- 📢 **Channel Post Blocking** - Block posts from channels (allows anonymous admin posts)
+
+### Member Management
+- ✅ **Free/Approval System** - Exempt trusted members from restrictions
+- 🎛️ **Customizable Exemptions** - Toggle exemptions per user for each restriction type
+- 👥 **Bulk Operations** - Remove all approved members at once
+
+### Maintenance & Safety
+- 🔄 **Auto-Restart** - Automatically restarts on crash
+- 🚫 **Global Ban System** - Ban users across all groups (owner only)
+- 📊 **Status Monitoring** - Track uptime, restarts, and bans
+- 📝 **Comprehensive Logging** - All events logged to channel
+- 🛡️ **Crash Recovery** - Detects and recovers from crashes automatically
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Python 3.8+
+- Telegram Bot Token (from @BotFather)
+
+### Installation
+
+1. **Clone the repository**
+```bash
+git clone https://github.com/nishkarshk212/Security-bot.git
+cd Security-bot
+```
+
+2. **Install dependencies**
+```bash
+pip install -r requirements.txt
+```
+
+3. **Configure environment**
+Create a `.env` file:
+```env
+BOT_TOKEN=your_bot_token_here
+OWNER_ID=your_telegram_user_id
+LOG_CHANNEL_ID=-100xxxxxxxxx
+```
+
+4. **Start the bot**
+
+**Option 1: With auto-restart (Recommended)**
+```bash
+chmod +x auto_restart.sh
+./auto_restart.sh start
+```
+
+**Option 2: Normal start**
+```bash
+python bot.py
+```
+
+## 📋 Commands
+
+### User Commands
+- `/start` - Start the bot
+- `/help` - Show help message
+- `/settings` - Open settings panel (admins only)
+- `/ping` - Check bot latency
+
+### Admin Commands
+- `/free` - Free member from restrictions (reply to message)
+- `/unfree` - Remove member from free list
+- `/unfreeall` - Remove ALL freed members
+- `/freed` - Show freed members count
+
+### Owner Commands
+- `/gban` - Globally ban a user (reply to message)
+- `/ungban` - Remove global ban
+- `/gbanlist` - Show all globally banned users
+- `/restart` - Manually restart the bot
+- `/status` - Check bot status and uptime
+
+## 🔧 Auto-Restart Script
+
+The `auto_restart.sh` script provides:
+- Automatic crash detection and recovery
+- Monitoring every 5 seconds
+- Crash loop prevention (max 10 restarts in 5 minutes)
+- Comprehensive logging
+
+```bash
+# Start with monitoring
+./auto_restart.sh start
+
+# Check status
+./auto_restart.sh status
+
+# Stop bot
+./auto_restart.sh stop
+
+# Restart bot
+./auto_restart.sh restart
+```
+
+## 📁 Project Structure
+
+```
+Security-bot/
+├── bot.py                 # Main bot file
+├── maintenance.py         # Maintenance & global ban system
+├── config.py             # Configuration constants
+├── font.py               # Text styling utilities
+├── auto_restart.sh       # Auto-restart script
+├── start_bot.sh          # Simple start script
+├── .env                  # Environment variables (create this)
+├── requirements.txt      # Python dependencies
+├── MAINTENANCE.md        # Maintenance system documentation
+├── QUICK_START_MAINTENANCE.md  # Quick reference guide
+└── README.md            # This file
+```
+
+## 🛠️ Configuration
+
+### Environment Variables (.env)
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `BOT_TOKEN` | Your Telegram bot token | `123456:ABC-DEF...` |
+| `OWNER_ID` | Bot owner's Telegram ID | `8791884726` |
+| `LOG_CHANNEL_ID` | Channel for logs | `-1003757375746` |
+
+### Getting IDs
+- **User ID**: Message @userinfobot on Telegram
+- **Channel ID**: Forward a message from channel to @getidsbot
+
+## 📊 Logging
+
+All events are logged to:
+- `bot.log` - General bot logs
+- `bot_maintenance.log` - Maintenance logs
+- `bot_monitor.log` - Auto-restart monitor logs
+- Log Channel - Notifications sent to LOG_CHANNEL_ID
+
+## 🔒 Security
+
+- ⚠️ **Never commit your `.env` file** (already in .gitignore)
+- 🔐 Keep your bot token private
+- 👤 Only OWNER_ID can use maintenance commands
+- 📝 All maintenance actions are logged
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+This project is open source and available under the MIT License.
+
+## 👨‍💻 Author
+
+**Nishkarsh Kr**
+- GitHub: [@nishkarshk212](https://github.com/nishkarshk212)
+
+## 🙏 Support
+
+If you find this bot helpful, please ⭐ star this repository!
+
+For issues and feature requests, please use the [Issues](https://github.com/nishkarshk212/Security-bot/issues) page.
+
+---
+
+Made with ❤️ for Telegram community
