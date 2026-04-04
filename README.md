@@ -195,12 +195,22 @@ pip install -r requirements.txt
 ```
 
 3. **Configure environment**
-Create a `.env` file:
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit with your actual values
+nano .env  # or use any text editor
+```
+
+Your `.env` file should contain:
 ```env
 BOT_TOKEN=your_bot_token_here
 OWNER_ID=your_telegram_user_id
 LOG_CHANNEL_ID=-100xxxxxxxxx
 ```
+
+⚠️ **Important:** Never commit your `.env` file with real credentials!
 
 4. **Start the bot**
 
@@ -268,7 +278,8 @@ Security-bot/
 ├── font.py               # Text styling utilities
 ├── auto_restart.sh       # Auto-restart script
 ├── start_bot.sh          # Simple start script
-├── .env                  # Environment variables (create this)
+├── .env.example          # Environment variables template (copy to .env)
+├── .env                  # Your actual credentials (DO NOT COMMIT!)
 ├── requirements.txt      # Python dependencies
 ├── MAINTENANCE.md        # Maintenance system documentation
 ├── QUICK_START_MAINTENANCE.md  # Quick reference guide
@@ -299,10 +310,11 @@ All events are logged to:
 
 ## 🔒 Security
 
-- ⚠️ **Never commit your `.env` file** (already in .gitignore)
+- ⚠️ **Never commit your `.env` file** - Use `.env.example` as template
 - 🔐 Keep your bot token private
 - 👤 Only OWNER_ID can use maintenance commands
 - 📝 All maintenance actions are logged
+- 🛡️ `.env` is in `.gitignore` to prevent accidental commits
 
 ## 🤝 Contributing
 
