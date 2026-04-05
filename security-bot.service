@@ -1,0 +1,22 @@
+[Unit]
+Description=Security Telegram Moderation Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/security-bot
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 /opt/security-bot/main.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/opt/security-bot/bot.log
+StandardError=append:/opt/security-bot/bot_error.log
+
+# Security settings
+NoNewPrivileges=false
+ProtectSystem=false
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target
