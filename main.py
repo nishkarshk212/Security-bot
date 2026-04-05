@@ -823,8 +823,15 @@ class ModerationBot:
         if update.message.reply_to_message:
             target_user = update.message.reply_to_message.from_user
         
-        # 2. Check for mentions or text input (username/ID)
-        elif context.args:
+        # 2. Check for text_mention (clicked mention)
+        if not target_user and update.message.entities:
+            for entity in update.message.entities:
+                if entity.type == 'text_mention' and entity.user:
+                    target_user = entity.user
+                    break
+        
+        # 3. Check context.args for ID or mention
+        if not target_user and context.args:
             arg = context.args[0]
             
             # Check if it's a numeric User ID
@@ -844,42 +851,24 @@ class ModerationBot:
             
             # Check if it's a username (starts with @)
             elif arg.startswith('@'):
-                username = arg[1:]
-                # We can't directly get user by username unless they've interacted with the bot
-                # or we search the chat members. For simplicity, we'll try to find them in the 
-                # message entities first if it was a mention.
-                if update.message.entities:
-                    for entity in update.message.entities:
-                        if entity.type == 'mention':
-                            mention_text = update.message.text[entity.offset:entity.offset + entity.length]
-                            if mention_text.lower() == arg.lower():
-                                # Mention doesn't contain user object, we still need to find them
-                                # Best way is to ask for reply or ID if get_chat_member doesn't work with username
-                                pass
-                
-                # Since Telegram Bot API doesn't support get_chat_member by username, 
-                # and searching all members is expensive/restricted, we inform the user.
+                # If it was a text_mention, it would have been caught above.
+                # If it's just a 'mention' type, we don't have the User object.
                 await self.send_auto_delete_message(
                     update.message,
-                    style_text("ℹ️ To free by username, please mention the user (e.g., /free @username) or reply to their message."),
+                    style_text("ℹ️ <b>How to mention for /free:</b>\n\n"
+                              "Type <code>/free</code> and then <b>click the user's name</b> from the list, or <b>reply</b> to their message.\n\n"
+                              "<i>Note: Standard @username mentions only work if you click the name suggestion.</i>"),
                     delete_after=60,
                     parse_mode='HTML'
                 )
                 return
-
-        # 3. Check for text_mention (user without username)
-        if not target_user and update.message.entities:
-            for entity in update.message.entities:
-                if entity.type == 'text_mention' and entity.user:
-                    target_user = entity.user
-                    break
         
         if not target_user:
             await self.send_auto_delete_message(
                 update.message,
                 style_text("ℹ️ <b>How to use /free:</b>\n\n"
                           "1. Reply to a user's message\n"
-                          "2. Mention them: <code>/free @username</code>\n"
+                          "2. Mention them: <code>/free</code> [click name]\n"
                           "3. Use their User ID: <code>/free 123456789</code>"),
                 delete_after=60,
                 parse_mode='HTML'
@@ -959,8 +948,15 @@ class ModerationBot:
         if update.message.reply_to_message:
             target_user = update.message.reply_to_message.from_user
         
-        # 2. ID or Mention
-        elif context.args:
+        # 2. Text mention (clicked)
+        if not target_user and update.message.entities:
+            for entity in update.message.entities:
+                if entity.type == 'text_mention' and entity.user:
+                    target_user = entity.user
+                    break
+        
+        # 3. ID
+        if not target_user and context.args:
             arg = context.args[0]
             if arg.isdigit():
                 try:
@@ -970,17 +966,10 @@ class ModerationBot:
                 except Exception:
                     pass
         
-        # 3. Text mention
-        if not target_user and update.message.entities:
-            for entity in update.message.entities:
-                if entity.type == 'text_mention' and entity.user:
-                    target_user = entity.user
-                    break
-        
         if not target_user:
             await self.send_auto_delete_message(
                 update.message,
-                style_text("ℹ️ Reply to a user or use <code>/unfree [ID/Mention]</code>"),
+                style_text("ℹ️ Reply to a user or use <code>/unfree [ID/click name]</code>"),
                 delete_after=60,
                 parse_mode='HTML'
             )
