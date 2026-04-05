@@ -627,9 +627,14 @@ class ModerationBot:
         
         # Handle exemption toggles
         if data.startswith("exempt_"):
-            parts = data.split("_")
-            exemption_type = parts[1]
-            target_user_id = int(parts[2])
+            # Parse callback data - handle premium_stickers specially
+            if data.startswith("exempt_premium_stickers_"):
+                exemption_type = "premium_stickers"
+                target_user_id = int(data.replace("exempt_premium_stickers_", ""))
+            else:
+                parts = data.split("_")
+                exemption_type = parts[1]
+                target_user_id = int(parts[2])
             
             # Get current exemptions
             exemptions = await self.db.get_user_exemptions(chat_id, target_user_id)
