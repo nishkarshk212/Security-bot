@@ -513,7 +513,7 @@ class ModerationBot:
         return keyboard
     
     def _create_approval_keyboard(self, exemptions, user_id):
-        """Create 6-button grid for exemption selection"""
+        """Create 6-button grid for exemption selection with close button"""
         keyboard = [
             [
                 InlineKeyboardButton(
@@ -543,6 +543,12 @@ class ModerationBot:
                 InlineKeyboardButton(
                     f"{'✅' if exemptions['exempt_premium_stickers'] else '❌'} ⭐ Premium Stickers",
                     callback_data=f"exempt_premium_stickers_{user_id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "❌ Close",
+                    callback_data="close_approval"
                 ),
             ],
         ]
@@ -669,6 +675,11 @@ class ModerationBot:
             
             status = "enabled" if new_value else "disabled"
             await query.answer(style_text(f"{exemption_type.capitalize()} exemption {status}"))
+            return
+        
+        # Handle close approval settings
+        if data == "close_approval":
+            await query.message.delete()
             return
         
         # Handle refresh
