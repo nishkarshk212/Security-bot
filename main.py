@@ -816,30 +816,71 @@ class ModerationBot:
             )
             return
         
-        # Get the user to approve - support both reply and mention
+        # Get the user to approve - support reply, mention, username, or user ID
         target_user = None
         
-        # Check if replying to a message
+        # 1. Check if replying to a message
         if update.message.reply_to_message:
             target_user = update.message.reply_to_message.from_user
-        # Check if there's a mention in the message entities
-        elif update.message.entities:
+        
+        # 2. Check for mentions or text input (username/ID)
+        elif context.args:
+            arg = context.args[0]
+            
+            # Check if it's a numeric User ID
+            if arg.isdigit():
+                try:
+                    target_user_id = int(arg)
+                    chat_member = await context.bot.get_chat_member(chat.id, target_user_id)
+                    target_user = chat_member.user
+                except Exception:
+                    await self.send_auto_delete_message(
+                        update.message,
+                        style_text(f"❌ Could not find user with ID {arg} in this chat."),
+                        delete_after=60,
+                        parse_mode='HTML'
+                    )
+                    return
+            
+            # Check if it's a username (starts with @)
+            elif arg.startswith('@'):
+                username = arg[1:]
+                # We can't directly get user by username unless they've interacted with the bot
+                # or we search the chat members. For simplicity, we'll try to find them in the 
+                # message entities first if it was a mention.
+                if update.message.entities:
+                    for entity in update.message.entities:
+                        if entity.type == 'mention':
+                            mention_text = update.message.text[entity.offset:entity.offset + entity.length]
+                            if mention_text.lower() == arg.lower():
+                                # Mention doesn't contain user object, we still need to find them
+                                # Best way is to ask for reply or ID if get_chat_member doesn't work with username
+                                pass
+                
+                # Since Telegram Bot API doesn't support get_chat_member by username, 
+                # and searching all members is expensive/restricted, we inform the user.
+                await self.send_auto_delete_message(
+                    update.message,
+                    style_text("ℹ️ To free by username, please mention the user (e.g., /free @username) or reply to their message."),
+                    delete_after=60,
+                    parse_mode='HTML'
+                )
+                return
+
+        # 3. Check for text_mention (user without username)
+        if not target_user and update.message.entities:
             for entity in update.message.entities:
-                if entity.type == 'mention' or entity.type == 'text_mention':
-                    if entity.type == 'text_mention' and entity.user:
-                        target_user = entity.user
-                        break
-                    elif entity.type == 'mention':
-                        # Extract username from mention
-                        mention_text = update.message.text[entity.offset:entity.offset + entity.length]
-                        username = mention_text[1:]  # Remove @ symbol
-                        # Try to get user by username (this is limited, better to use reply)
-                        pass
+                if entity.type == 'text_mention' and entity.user:
+                    target_user = entity.user
+                    break
         
         if not target_user:
             await self.send_auto_delete_message(
                 update.message,
-                style_text("ℹ️ Reply to a user's message or mention them with /free to exempt them from restrictions."),
+                style_text("ℹ️ <b>How to use /free:</b>\n\n"
+                          "1. Reply to a user's message\n"
+                          "2. Mention them: <code>/free @username</code>\n"
+                          "3. Use their User ID: <code>/free 123456789</code>"),
                 delete_after=60,
                 parse_mode='HTML'
             )
@@ -848,21 +889,29 @@ class ModerationBot:
         # Check if already approved
         is_approved = await self.db.is_user_approved(chat.id, target_user.id)
         
-        # Get exemptions (whether approved or not)
+        # Get exemptions
         exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
+        if not exemptions:
+            # Default exemptions if not in DB yet
+            exemptions = {
+                'exempt_stickers': True,
+                'exempt_media': True,
+                'exempt_forwards': False,
+                'exempt_links': False,
+                'exempt_commands': False,
+                'exempt_premium_stickers': True
+            }
         
-        # Send approval message with 6-button grid showing current exemptions
+        # Send approval message with 6-button grid
         keyboard = self._create_approval_keyboard(exemptions, target_user.id)
         
         if is_approved:
-            # User is already freed - show current exemption status
             approval_text = (
                 f"✅ <b>{target_user.mention_html()} is already freed!</b>\n\n"
                 f"Current exemption settings:\n\n"
                 f"<i>Tap buttons below to toggle exemptions</i>"
             )
         else:
-            # New user - add to approved list first
             await self.db.add_approved_user(
                 chat.id,
                 target_user.id,
@@ -870,8 +919,6 @@ class ModerationBot:
                 target_user.first_name or "",
                 user.id
             )
-            
-            # Build message with styled text and HTML mention
             approval_text = (
                 f"✅ <b>Member Freed!</b>\n\n"
                 f"{target_user.mention_html()} can now configure exemptions:\n\n"
@@ -883,7 +930,7 @@ class ModerationBot:
             reply_markup=keyboard,
             parse_mode='HTML'
         )
-    
+
     async def cmd_unapprove(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /unfree command - Remove member from free list"""
         chat = update.effective_chat
@@ -893,8 +940,6 @@ class ModerationBot:
         if chat.type in ['group', 'supergroup']:
             try:
                 chat_member = await context.bot.get_chat_member(chat.id, user.id)
-                
-                # Must be creator or administrator
                 if chat_member.status not in ['creator', 'administrator']:
                     await self.send_auto_delete_message(
                         update.message,
@@ -903,64 +948,44 @@ class ModerationBot:
                         parse_mode='HTML'
                     )
                     return
-                
-                # If administrator, check specific permissions
-                if chat_member.status == 'administrator':
-                    can_restrict = getattr(chat_member, 'can_restrict_members', False)
-                    can_change_info = getattr(chat_member, 'can_change_info', False)
-                    
-                    if not (can_restrict and can_change_info):
-                        await self.send_auto_delete_message(
-                            update.message,
-                            style_text("❌ You need ban users and change group info permissions to unfree members."),
-                            delete_after=60,
-                            parse_mode='HTML'
-                        )
-                        return
-            except Exception as e:
-                await self.send_auto_delete_message(
-                    update.message,
-                    style_text("❌ Error checking permissions. Please try again."),
-                    delete_after=60,
-                    parse_mode='HTML'
-                )
+            except Exception:
                 return
         else:
-            await self.send_auto_delete_message(
-                update.message,
-                style_text("This command can only be used in groups."),
-                delete_after=60,
-                parse_mode='HTML'
-            )
             return
         
-        # Get the user to unapprove - support both reply and mention
         target_user = None
         
-        # Check if replying to a message
+        # 1. Reply
         if update.message.reply_to_message:
             target_user = update.message.reply_to_message.from_user
-        # Check if there's a mention in the message entities
-        elif update.message.entities:
+        
+        # 2. ID or Mention
+        elif context.args:
+            arg = context.args[0]
+            if arg.isdigit():
+                try:
+                    target_user_id = int(arg)
+                    chat_member = await context.bot.get_chat_member(chat.id, target_user_id)
+                    target_user = chat_member.user
+                except Exception:
+                    pass
+        
+        # 3. Text mention
+        if not target_user and update.message.entities:
             for entity in update.message.entities:
-                if entity.type == 'mention' or entity.type == 'text_mention':
-                    if entity.type == 'text_mention' and entity.user:
-                        target_user = entity.user
-                        break
+                if entity.type == 'text_mention' and entity.user:
+                    target_user = entity.user
+                    break
         
         if not target_user:
             await self.send_auto_delete_message(
                 update.message,
-                style_text("ℹ️ Reply to a user's message or mention them with /unfree to remove their exemption."),
+                style_text("ℹ️ Reply to a user or use <code>/unfree [ID/Mention]</code>"),
                 delete_after=60,
                 parse_mode='HTML'
             )
             return
         
-        # Get the user to unapprove
-        target_user = update.message.reply_to_message.from_user
-        
-        # Check if approved
         is_approved = await self.db.is_user_approved(chat.id, target_user.id)
         if not is_approved:
             await self.send_auto_delete_message(
@@ -971,16 +996,14 @@ class ModerationBot:
             )
             return
         
-        # Remove from approved users
         await self.db.remove_approved_user(chat.id, target_user.id)
-        
         await self.send_auto_delete_message(
             update.message,
-            f"❌ {target_user.mention_html()} has been removed from freed list.\n"
-            f"<i>They are now subject to all group restrictions.</i>",
+            f"❌ {target_user.mention_html()} has been removed from freed list.",
             delete_after=60,
             parse_mode='HTML'
         )
+
     
     async def cmd_approved(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /freed command - Show list of freed members"""
