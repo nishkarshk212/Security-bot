@@ -88,17 +88,22 @@ class DatabaseManager:
                     exempt_links BOOLEAN DEFAULT 0,
                     exempt_commands BOOLEAN DEFAULT 0,
                     exempt_premium_stickers BOOLEAN DEFAULT 1,
+                    exempt_channel_posts BOOLEAN DEFAULT 0,
                     approved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(chat_id, user_id)
                 )
             ''')
             
-            # Migration: Add exempt_premium_stickers column if it doesn't exist
+            # Migration: Add columns if they don't exist
             try:
                 await db.execute('ALTER TABLE approved_users ADD COLUMN exempt_premium_stickers BOOLEAN DEFAULT 1')
-                await db.commit()
             except:
-                pass  # Column already exists
+                pass
+            
+            try:
+                await db.execute('ALTER TABLE approved_users ADD COLUMN exempt_channel_posts BOOLEAN DEFAULT 0')
+            except:
+                pass
             
             await db.commit()
     
@@ -152,22 +157,22 @@ class DatabaseManager:
             await db.execute(
                 '''INSERT OR REPLACE INTO approved_users 
                    (chat_id, user_id, username, first_name, approved_by, 
-                    exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, approved_at) 
-                   VALUES (?, ?, ?, ?, ?, 1, 1, 0, 0, 0, 1, CURRENT_TIMESTAMP)''',
+                    exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, approved_at) 
+                   VALUES (?, ?, ?, ?, ?, 1, 1, 0, 0, 0, 1, 0, CURRENT_TIMESTAMP)''',
                 (chat_id, user_id, username, first_name, approved_by)
             )
             await db.commit()
     
-    async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers):
+    async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts):
         """Update user's exemption settings"""
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
                 '''UPDATE approved_users 
                    SET exempt_stickers = ?, exempt_media = ?, 
                        exempt_forwards = ?, exempt_links = ?, exempt_commands = ?,
-                       exempt_premium_stickers = ?
+                       exempt_premium_stickers = ?, exempt_channel_posts = ?
                    WHERE chat_id = ? AND user_id = ?''',
-                (exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, chat_id, user_id)
+                (exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, chat_id, user_id)
             )
             await db.commit()
     
@@ -175,7 +180,7 @@ class DatabaseManager:
         """Get user's exemption settings"""
         async with aiosqlite.connect(self.db_file) as db:
             cursor = await db.execute(
-                'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers FROM approved_users WHERE chat_id = ? AND user_id = ?',
+                'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts FROM approved_users WHERE chat_id = ? AND user_id = ?',
                 (chat_id, user_id)
             )
             row = await cursor.fetchone()
@@ -187,6 +192,7 @@ class DatabaseManager:
                     'exempt_links': bool(row[3]),
                     'exempt_commands': bool(row[4]),
                     'exempt_premium_stickers': bool(row[5]),
+                    'exempt_channel_posts': bool(row[6]),
                 }
             return None
     
@@ -547,6 +553,12 @@ class ModerationBot:
             ],
             [
                 InlineKeyboardButton(
+                    f"{'✅' if exemptions['exempt_channel_posts'] else '❌'} 📢 Channel Posts",
+                    callback_data=f"exempt_channel_posts_{user_id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
                     "❌ Close",
                     callback_data="close_approval"
                 ),
@@ -633,10 +645,13 @@ class ModerationBot:
         
         # Handle exemption toggles
         if data.startswith("exempt_"):
-            # Parse callback data - handle premium_stickers specially
+            # Parse callback data
             if data.startswith("exempt_premium_stickers_"):
                 exemption_type = "premium_stickers"
                 target_user_id = int(data.replace("exempt_premium_stickers_", ""))
+            elif data.startswith("exempt_channel_posts_"):
+                exemption_type = "channel_posts"
+                target_user_id = int(data.replace("exempt_channel_posts_", ""))
             else:
                 parts = data.split("_")
                 exemption_type = parts[1]
@@ -661,7 +676,8 @@ class ModerationBot:
                 exemptions['exempt_forwards'],
                 exemptions['exempt_links'],
                 exemptions['exempt_commands'],
-                exemptions['exempt_premium_stickers']
+                exemptions['exempt_premium_stickers'],
+                exemptions['exempt_channel_posts']
             )
             
             # Update keyboard
@@ -789,12 +805,11 @@ class ModerationBot:
                 # If administrator, check specific permissions
                 if chat_member.status == 'administrator':
                     can_restrict = getattr(chat_member, 'can_restrict_members', False)
-                    can_change_info = getattr(chat_member, 'can_change_info', False)
                     
-                    if not (can_restrict and can_change_info):
+                    if not can_restrict:
                         await self.send_auto_delete_message(
                             update.message,
-                            style_text("❌ You need ban users and change group info permissions to approve members."),
+                            style_text("❌ You need ban users permission to approve members."),
                             delete_after=60,
                             parse_mode='HTML'
                         )
@@ -851,17 +866,51 @@ class ModerationBot:
             
             # Check if it's a username (starts with @)
             elif arg.startswith('@'):
-                # If it was a text_mention, it would have been caught above.
-                # If it's just a 'mention' type, we don't have the User object.
-                await self.send_auto_delete_message(
-                    update.message,
-                    style_text("ℹ️ <b>How to mention for /free:</b>\n\n"
-                              "Type <code>/free</code> and then <b>click the user's name</b> from the list, or <b>reply</b> to their message.\n\n"
-                              "<i>Note: Standard @username mentions only work if you click the name suggestion.</i>"),
-                    delete_after=60,
-                    parse_mode='HTML'
-                )
-                return
+                target_username = arg[1:].lower()
+                
+                # Try to find user in the message mentions first
+                if update.message.entities:
+                    for entity in update.message.entities:
+                        if entity.type == 'mention':
+                            mention_text = update.message.text[entity.offset:entity.offset + entity.length]
+                            if mention_text[1:].lower() == target_username:
+                                # Standard mentions don't provide User object
+                                # But we can try to find them in the chat admins
+                                try:
+                                    admins = await context.bot.get_chat_administrators(chat.id)
+                                    for admin in admins:
+                                        if admin.user.username and admin.user.username.lower() == target_username:
+                                            target_user = admin.user
+                                            break
+                                except:
+                                    pass
+                
+                # If still not found, search in our database of approved users
+                if not target_user:
+                    async with aiosqlite.connect(self.db.db_file) as db:
+                        cursor = await db.execute(
+                            'SELECT user_id, first_name FROM approved_users WHERE chat_id = ? AND LOWER(username) = ?',
+                            (chat.id, target_username)
+                        )
+                        row = await cursor.fetchone()
+                        if row:
+                            # Create a dummy user object with ID and first name
+                            from telegram import User
+                            target_user = User(id=row[0], first_name=row[1], is_bot=False, username=target_username)
+                
+                # If we still don't have a user, we'll inform them how to do it properly.
+                if not target_user:
+                    await self.send_auto_delete_message(
+                        update.message,
+                        style_text("ℹ️ <b>How to free by mention:</b>\n\n"
+                                  "1. Type <code>/free</code>\n"
+                                  "2. Select the user from the list that pops up\n"
+                                  "<i>OR</i> reply to their message with <code>/free</code>\n"
+                                  "<i>OR</i> use their User ID: <code>/free 123456789</code>"),
+                        delete_after=60,
+                        parse_mode='HTML'
+                    )
+                    return
         
         if not target_user:
             await self.send_auto_delete_message(
@@ -888,7 +937,8 @@ class ModerationBot:
                 'exempt_forwards': False,
                 'exempt_links': False,
                 'exempt_commands': False,
-                'exempt_premium_stickers': True
+                'exempt_premium_stickers': True,
+                'exempt_channel_posts': False
             }
         
         # Send approval message with 6-button grid
@@ -955,7 +1005,7 @@ class ModerationBot:
                     target_user = entity.user
                     break
         
-        # 3. ID
+        # 3. ID or username
         if not target_user and context.args:
             arg = context.args[0]
             if arg.isdigit():
@@ -964,12 +1014,32 @@ class ModerationBot:
                     chat_member = await context.bot.get_chat_member(chat.id, target_user_id)
                     target_user = chat_member.user
                 except Exception:
-                    pass
+                    # User not in chat, try searching in database
+                    async with aiosqlite.connect(self.db.db_file) as db:
+                        cursor = await db.execute(
+                            'SELECT user_id, first_name FROM approved_users WHERE chat_id = ? AND user_id = ?',
+                            (chat.id, int(arg))
+                        )
+                        row = await cursor.fetchone()
+                        if row:
+                            from telegram import User
+                            target_user = User(id=row[0], first_name=row[1], is_bot=False)
+            elif arg.startswith('@'):
+                target_username = arg[1:].lower()
+                async with aiosqlite.connect(self.db.db_file) as db:
+                    cursor = await db.execute(
+                        'SELECT user_id, first_name FROM approved_users WHERE chat_id = ? AND LOWER(username) = ?',
+                        (chat.id, target_username)
+                    )
+                    row = await cursor.fetchone()
+                    if row:
+                        from telegram import User
+                        target_user = User(id=row[0], first_name=row[1], is_bot=False, username=target_username)
         
         if not target_user:
             await self.send_auto_delete_message(
                 update.message,
-                style_text("ℹ️ Reply to a user or use <code>/unfree [ID/click name]</code>"),
+                style_text("ℹ️ Reply to a user or use <code>/unfree [ID/username]</code>"),
                 delete_after=60,
                 parse_mode='HTML'
             )
@@ -1007,9 +1077,14 @@ class ModerationBot:
             )
             return
         
-        count = await self.db.get_approved_users_count(chat.id)
+        async with aiosqlite.connect(self.db.db_file) as db:
+            cursor = await db.execute(
+                'SELECT user_id, first_name, username FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
+                (chat.id,)
+            )
+            rows = await cursor.fetchall()
         
-        if count == 0:
+        if not rows:
             await self.send_auto_delete_message(
                 update.message,
                 style_text("📋 No freed members yet.\n\n"
@@ -1018,12 +1093,21 @@ class ModerationBot:
                 parse_mode='HTML'
             )
         else:
+            text = f"📋 <b>Freed Members ({len(rows)}):</b>\n\n"
+            for i, row in enumerate(rows[:50], 1):  # Limit to 50 for message length
+                user_id, first_name, username = row
+                user_text = f"@{username}" if username else first_name
+                text += f"{i}. {user_text} (<code>{user_id}</code>)\n"
+            
+            if len(rows) > 50:
+                text += f"\n<i>... and {len(rows) - 50} more.</i>"
+            
+            text += style_text("\n\nUse /unfree to remove from free list.")
+            
             await self.send_auto_delete_message(
                 update.message,
-                style_text(f"📋 Freed Members: {count}\n\n"
-                f"These members are exempt from sticker and media blocking.\n"
-                f"Use /unfree to remove from free list."),
-                delete_after=60,
+                text,
+                delete_after=120,
                 parse_mode='HTML'
             )
     
@@ -1050,12 +1134,11 @@ class ModerationBot:
                 # If administrator, check specific permissions
                 if chat_member.status == 'administrator':
                     can_restrict = getattr(chat_member, 'can_restrict_members', False)
-                    can_change_info = getattr(chat_member, 'can_change_info', False)
                     
-                    if not (can_restrict and can_change_info):
+                    if not can_restrict:
                         await self.send_auto_delete_message(
                             update.message,
-                            style_text("❌ You need ban users and change group info permissions to unfree all members."),
+                            style_text("❌ You need ban users permission to unfree all members."),
                             delete_after=60,
                             parse_mode='HTML'
                         )
@@ -1155,6 +1238,25 @@ class ModerationBot:
         # Get settings first (needed for other checks)
         settings = await self.db.get_settings(chat.id)
         
+        # Check if user is admin or approved (bypass restrictions)
+        is_admin = False
+        is_approved = False
+        exemptions = None
+        
+        if user:
+            try:
+                chat_member = await context.bot.get_chat_member(chat.id, user.id)
+                is_admin = chat_member.status in ['creator', 'administrator']
+            except:
+                is_admin = False
+            
+            if is_admin:
+                return
+            
+            # Check if user is approved and get exemptions
+            is_approved = await self.db.is_user_approved(chat.id, user.id)
+            exemptions = await self.db.get_user_exemptions(chat.id, user.id) if is_approved else None
+        
         # Check channel post blocking
         # Only block messages from CHANNELS, allow messages from GROUPS
         # sender_chat can be either a channel or a group
@@ -1163,6 +1265,10 @@ class ModerationBot:
             is_channel = message.sender_chat.type == 'channel'
             
             if is_channel:
+                # Check if user is approved for channel posts
+                if exemptions and exemptions.get('exempt_channel_posts', False):
+                    return  # User is exempt
+                
                 # This is from a channel - BLOCK IT
                 print(f"📢 Blocking channel message from: {message.sender_chat.title} (ID: {message.sender_chat.id})")
                 try:
@@ -1183,24 +1289,6 @@ class ModerationBot:
         
         # Skip bot messages
         if user and user.is_bot:
-            return
-        
-        # Check if user is admin (admins bypass restrictions)
-        if user:
-            try:
-                chat_member = await context.bot.get_chat_member(chat.id, user.id)
-                is_admin = chat_member.status in ['creator', 'administrator']
-            except:
-                is_admin = False
-            
-            if is_admin:
-                return
-            
-            # Check if user is approved and get exemptions
-            is_approved = await self.db.is_user_approved(chat.id, user.id)
-            exemptions = await self.db.get_user_exemptions(chat.id, user.id) if is_approved else None
-        else:
-            # No user (shouldn't happen after channel check, but just in case)
             return
         
         # Check sticker blocking (skip for users with exemption)
@@ -1269,7 +1357,7 @@ class ModerationBot:
                 return
         
         # Check forward blocking (skip for users with exemption)
-        if settings['block_forwards'] and message.forward_from:
+        if settings['block_forwards'] and (message.forward_date or message.forward_origin):
             if exemptions and exemptions['exempt_forwards']:
                 return  # User is exempt
             try:
