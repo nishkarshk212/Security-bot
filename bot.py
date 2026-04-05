@@ -836,36 +836,36 @@ class ModerationBot:
         
         # Check if already approved
         is_approved = await self.db.is_user_approved(chat.id, target_user.id)
-        if is_approved:
-            await self.send_auto_delete_message(
-                update.message,
-                f"✅ {target_user.mention_html()} is already freed!",
-                delete_after=60,
-                parse_mode='HTML'
-            )
-            return
         
-        # Add to approved users
-        await self.db.add_approved_user(
-            chat.id,
-            target_user.id,
-            target_user.username or "",
-            target_user.first_name or "",
-            user.id
-        )
-        
-        # Get exemptions
+        # Get exemptions (whether approved or not)
         exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
         
-        # Send approval message with 4-button grid
+        # Send approval message with 6-button grid showing current exemptions
         keyboard = self._create_approval_keyboard(exemptions, target_user.id)
         
-        # Build message with styled text and HTML mention
-        approval_text = (
-            f"✅ <b>Member Freed!</b>\n\n"
-            f"{target_user.mention_html()} can now configure exemptions:\n\n"
-            f"<i>Tap buttons below to toggle exemptions</i>"
-        )
+        if is_approved:
+            # User is already freed - show current exemption status
+            approval_text = (
+                f"✅ <b>{target_user.mention_html()} is already freed!</b>\n\n"
+                f"Current exemption settings:\n\n"
+                f"<i>Tap buttons below to toggle exemptions</i>"
+            )
+        else:
+            # New user - add to approved list first
+            await self.db.add_approved_user(
+                chat.id,
+                target_user.id,
+                target_user.username or "",
+                target_user.first_name or "",
+                user.id
+            )
+            
+            # Build message with styled text and HTML mention
+            approval_text = (
+                f"✅ <b>Member Freed!</b>\n\n"
+                f"{target_user.mention_html()} can now configure exemptions:\n\n"
+                f"<i>Tap buttons below to toggle exemptions</i>"
+            )
         
         await update.message.reply_text(
             approval_text,
