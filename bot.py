@@ -310,6 +310,73 @@ class ModerationBot:
         # Message handlers for moderation
         self.app.add_handler(MessageHandler(filters.ALL, self.moderate_message), group=1)
     
+    async def _is_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id=None):
+        """Check if a user is an admin or creator of the chat, handling anonymous admins"""
+        chat = update.effective_chat
+        user = update.effective_user
+        message = update.effective_message or (update.callback_query.message if update.callback_query else None)
+        
+        if not chat:
+            return False
+            
+        if chat.type not in ['group', 'supergroup']:
+            return True  # Always allow in private chats (if the command is meant for private)
+            
+        # 1. Check if it's an anonymous admin or the group itself via sender_chat
+        # In groups, anonymous admins have sender_chat equal to the group chat
+        if message and message.sender_chat and message.sender_chat.id == chat.id:
+            return True
+            
+        # 2. Check if it's the anonymous bot (1087968824)
+        if user and user.id == 1087968824:
+            return True
+            
+        # 3. Check if it's a message from the group itself (sometimes from_user is None)
+        if message and not user and message.sender_chat and message.sender_chat.id == chat.id:
+            return True
+            
+        # 4. Standard admin check
+        target_user_id = user_id or (user.id if user else None)
+        
+        # Special case: 777000 is Telegram service, usually considered admin in group context
+        if target_user_id == 777000:
+            return True
+            
+        if not target_user_id:
+            # If we still don't have a user ID but it's a message from a chat, it might be an admin
+            if message and message.sender_chat:
+                # If it's the group itself, already handled. If it's another chat, probably not admin.
+                return message.sender_chat.id == chat.id
+            return False
+            
+        try:
+            chat_member = await context.bot.get_chat_member(chat.id, target_user_id)
+            return chat_member.status in ['creator', 'administrator']
+        except Exception:
+            return False
+
+    async def can_user_configure_settings(self, chat_id, user_id, context): 
+        """Check if a user can configure settings (Owner, Creator, or Admin with Change Info + Ban perms).""" 
+        if not user_id: return False 
+        
+        # Anonymous admins are allowed to configure settings as we can't check specific rights easily 
+        ANONYMOUS_ADMIN_ID = 1087968824 
+        if user_id == ANONYMOUS_ADMIN_ID: 
+            return True 
+            
+        if user_id == OWNER_ID: 
+            return True 
+        try: 
+            member = await context.bot.get_chat_member(chat_id, user_id) 
+            if member.status == 'creator': 
+                return True 
+            if member.status == 'administrator': 
+                # Check for both "Change Group Info" and "Ban Users" (can_restrict_members) 
+                return member.can_change_info and member.can_restrict_members 
+            return False 
+        except: 
+            return False
+
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         chat = update.effective_chat
@@ -417,11 +484,11 @@ class ModerationBot:
         
         # Check if user has required admin permissions
         if chat.type in ['group', 'supergroup']:
-            try:
-                chat_member = await context.bot.get_chat_member(chat.id, user.id)
-                
-                # Must be creator or administrator
-                if chat_member.status not in ['creator', 'administrator']:
+            user_id = user.id if user else None
+            if not user_id:
+                # Handle anonymous admin via sender_chat
+                is_admin = await self._is_admin(update, context)
+                if not is_admin:
                     await self.send_auto_delete_message(
                         update.message,
                         style_text("❌ Only group admins can access settings."),
@@ -429,28 +496,17 @@ class ModerationBot:
                         parse_mode='HTML'
                     )
                     return
-                
-                # If administrator, check specific permissions
-                if chat_member.status == 'administrator':
-                    can_restrict = getattr(chat_member, 'can_restrict_members', False)
-                    can_change_info = getattr(chat_member, 'can_change_info', False)
-                    
-                    if not (can_restrict and can_change_info):
-                        await self.send_auto_delete_message(
-                            update.message,
-                            style_text("❌ You need ban users and change group info permissions to access settings."),
-                            delete_after=60,
-                            parse_mode='HTML'
-                        )
-                        return
-            except Exception as e:
-                await self.send_auto_delete_message(
-                    update.message,
-                    style_text("❌ Error checking permissions. Please try again."),
-                    delete_after=60,
-                    parse_mode='HTML'
-                )
-                return
+            else:
+                # Use stricter permission check for named users
+                can_configure = await self.can_user_configure_settings(chat.id, user_id, context)
+                if not can_configure:
+                    await self.send_auto_delete_message(
+                        update.message,
+                        style_text("❌ You need ban users and change group info permissions to access settings."),
+                        delete_after=60,
+                        parse_mode='HTML'
+                    )
+                    return
         
         # Get current settings
         settings = await self.db.get_settings(chat.id)
@@ -645,6 +701,12 @@ class ModerationBot:
         
         # Handle exemption toggles
         if data.startswith("exempt_"):
+            # Check if user has required admin permissions
+            is_admin = await self._is_admin(update, context)
+            if not is_admin:
+                await query.answer(style_text("❌ Only admins can toggle exemptions"), show_alert=True)
+                return
+                
             # Parse callback data
             if data.startswith("exempt_premium_stickers_"):
                 exemption_type = "premium_stickers"
@@ -719,28 +781,22 @@ class ModerationBot:
         # Handle toggle settings
         if data.startswith("toggle_"):
             # Check if user has required admin permissions
-            try:
-                chat_member = await context.bot.get_chat_member(chat_id, query.from_user.id)
-                
-                # Must be creator or administrator
-                if chat_member.status not in ['creator', 'administrator']:
+            user_id = query.from_user.id if query.from_user else None
+            if not user_id:
+                # Handle anonymous admin via sender_chat
+                is_admin = await self._is_admin(update, context)
+                if not is_admin:
                     await query.answer(style_text("❌ Only admins can change settings"), show_alert=True)
                     return
-                
-                # If administrator, check specific permissions
-                if chat_member.status == 'administrator':
-                    can_restrict = getattr(chat_member, 'can_restrict_members', False)
-                    can_change_info = getattr(chat_member, 'can_change_info', False)
-                    
-                    if not (can_restrict and can_change_info):
-                        await query.answer(
-                            style_text("❌ You need ban users and change group info permissions"),
-                            show_alert=True
-                        )
-                        return
-            except Exception as e:
-                await query.answer(style_text("❌ Error checking permissions"), show_alert=True)
-                return
+            else:
+                # Use stricter permission check for named users
+                can_configure = await self.can_user_configure_settings(chat_id, user_id, context)
+                if not can_configure:
+                    await query.answer(
+                        style_text("❌ You need ban users and change group info permissions to change settings"),
+                        show_alert=True
+                    )
+                    return
             
             setting_name = data.replace("toggle_", "")
             settings = await self.db.get_settings(chat_id)
@@ -878,39 +934,37 @@ class ModerationBot:
         
         # Check if user has required admin permissions
         if chat.type in ['group', 'supergroup']:
-            try:
-                chat_member = await context.bot.get_chat_member(chat.id, user.id)
-                
-                # Must be creator or administrator
-                if chat_member.status not in ['creator', 'administrator']:
-                    await self.send_auto_delete_message(
-                        update.message,
-                        style_text("❌ Only group admins can approve members."),
-                        delete_after=60,
-                        parse_mode='HTML'
-                    )
-                    return
-                
-                # If administrator, check specific permissions
-                if chat_member.status == 'administrator':
-                    can_restrict = getattr(chat_member, 'can_restrict_members', False)
-                    
-                    if not can_restrict:
-                        await self.send_auto_delete_message(
-                            update.message,
-                            style_text("❌ You need ban users permission to approve members."),
-                            delete_after=60,
-                            parse_mode='HTML'
-                        )
-                        return
-            except Exception as e:
+            is_admin = await self._is_admin(update, context)
+            if not is_admin:
                 await self.send_auto_delete_message(
                     update.message,
-                    style_text("❌ Error checking permissions. Please try again."),
+                    style_text("❌ Only group admins can approve members."),
                     delete_after=60,
                     parse_mode='HTML'
                 )
                 return
+            
+            # If administrator, check specific permissions
+            # Note: For anonymous admins, we allow member approval by default
+            if user and user.id != 1087968824: # Not anonymous bot
+                try:
+                    chat_member = await context.bot.get_chat_member(chat.id, user.id)
+                    if chat_member.status == 'administrator':
+                        can_restrict = getattr(chat_member, 'can_restrict_members', False)
+                        
+                        if not can_restrict:
+                            await self.send_auto_delete_message(
+                                update.message,
+                                style_text("❌ You need ban users permission to approve members."),
+                                delete_after=60,
+                                parse_mode='HTML'
+                            )
+                            return
+                except:
+                    pass
+        elif chat.type == 'private':
+            # Allow in private if needed, but usually /free is for groups
+            pass
         else:
             await self.send_auto_delete_message(
                 update.message,
@@ -938,6 +992,16 @@ class ModerationBot:
         # Check if already approved
         is_approved = await self.db.is_user_approved(chat.id, target_user.id)
         
+        # Don't allow approving the anonymous bot or other system bots
+        if target_user.id in [1087968824, 777000]:
+            await self.send_auto_delete_message(
+                update.message,
+                style_text("❌ Cannot approve anonymous admins or system accounts."),
+                delete_after=60,
+                parse_mode='HTML'
+            )
+            return
+            
         # Get exemptions
         exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
         if not exemptions:
@@ -962,12 +1026,13 @@ class ModerationBot:
                 f"<i>Tap buttons below to toggle exemptions</i>"
             )
         else:
+            approved_by_id = user.id if user else 0
             await self.db.add_approved_user(
                 chat.id,
                 target_user.id,
                 target_user.username or "",
                 target_user.first_name or "",
-                user.id
+                approved_by_id
             )
             approval_text = (
                 f"✅ <b>Member Freed!</b>\n\n"
@@ -988,17 +1053,14 @@ class ModerationBot:
         
         # Check if user has required admin permissions
         if chat.type in ['group', 'supergroup']:
-            try:
-                chat_member = await context.bot.get_chat_member(chat.id, user.id)
-                if chat_member.status not in ['creator', 'administrator']:
-                    await self.send_auto_delete_message(
-                        update.message,
-                        style_text("❌ Only group admins can unfree members."),
-                        delete_after=60,
-                        parse_mode='HTML'
-                    )
-                    return
-            except Exception:
+            is_admin = await self._is_admin(update, context)
+            if not is_admin:
+                await self.send_auto_delete_message(
+                    update.message,
+                    style_text("❌ Only group admins can unfree members."),
+                    delete_after=60,
+                    parse_mode='HTML'
+                )
                 return
         else:
             return
@@ -1088,39 +1150,34 @@ class ModerationBot:
         
         # Check if user has required admin permissions
         if chat.type in ['group', 'supergroup']:
-            try:
-                chat_member = await context.bot.get_chat_member(chat.id, user.id)
-                
-                # Must be creator or administrator
-                if chat_member.status not in ['creator', 'administrator']:
-                    await self.send_auto_delete_message(
-                        update.message,
-                        style_text("❌ Only group admins can unfree all members."),
-                        delete_after=60,
-                        parse_mode='HTML'
-                    )
-                    return
-                
-                # If administrator, check specific permissions
-                if chat_member.status == 'administrator':
-                    can_restrict = getattr(chat_member, 'can_restrict_members', False)
-                    
-                    if not can_restrict:
-                        await self.send_auto_delete_message(
-                            update.message,
-                            style_text("❌ You need ban users permission to unfree all members."),
-                            delete_after=60,
-                            parse_mode='HTML'
-                        )
-                        return
-            except Exception as e:
+            is_admin = await self._is_admin(update, context)
+            if not is_admin:
                 await self.send_auto_delete_message(
                     update.message,
-                    style_text("❌ Error checking permissions. Please try again."),
+                    style_text("❌ Only group admins can unfree all members."),
                     delete_after=60,
                     parse_mode='HTML'
                 )
                 return
+            
+            # If administrator, check specific permissions
+            # Note: For anonymous admins, we allow member unapproval by default
+            if user and user.id != 1087968824: # Not anonymous bot
+                try:
+                    chat_member = await context.bot.get_chat_member(chat.id, user.id)
+                    if chat_member.status == 'administrator':
+                        can_restrict = getattr(chat_member, 'can_restrict_members', False)
+                        
+                        if not can_restrict:
+                            await self.send_auto_delete_message(
+                                update.message,
+                                style_text("❌ You need ban users permission to unfree all members."),
+                                delete_after=60,
+                                parse_mode='HTML'
+                            )
+                            return
+                except:
+                    pass
         else:
             await self.send_auto_delete_message(
                 update.message,
@@ -1225,18 +1282,15 @@ class ModerationBot:
             
             if is_command:
                 # Now check if the user is an admin or exempt
-                is_admin = False
-                if user:
-                    try:
-                        chat_member = await context.bot.get_chat_member(chat.id, user.id)
-                        is_admin = chat_member.status in ['creator', 'administrator']
-                    except:
-                        is_admin = False
+                is_admin = await self._is_admin(update, context)
                 
                 if not is_admin:
                     # Check if user is approved and get exemptions
-                    is_approved = await self.db.is_user_approved(chat.id, user.id)
-                    exemptions = await self.db.get_user_exemptions(chat.id, user.id) if is_approved else None
+                    is_approved = False
+                    exemptions = None
+                    if user:
+                        is_approved = await self.db.is_user_approved(chat.id, user.id)
+                        exemptions = await self.db.get_user_exemptions(chat.id, user.id) if is_approved else None
                     
                     if not (exemptions and exemptions.get('exempt_commands', False)):
                         try:
@@ -1252,20 +1306,14 @@ class ModerationBot:
                         return
 
         # Check if user is admin or approved (bypass restrictions)
-        is_admin = False
+        is_admin = await self._is_admin(update, context)
+        if is_admin:
+            return
+            
         is_approved = False
         exemptions = None
         
         if user:
-            try:
-                chat_member = await context.bot.get_chat_member(chat.id, user.id)
-                is_admin = chat_member.status in ['creator', 'administrator']
-            except:
-                is_admin = False
-            
-            if is_admin:
-                return
-            
             # Check if user is approved and get exemptions
             is_approved = await self.db.is_user_approved(chat.id, user.id)
             exemptions = await self.db.get_user_exemptions(chat.id, user.id) if is_approved else None
