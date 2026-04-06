@@ -782,6 +782,95 @@ class ModerationBot:
                 parse_mode='HTML'
             )
     
+    async def _resolve_target_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Helper to resolve target user from reply, mentions, or arguments"""
+        chat = update.effective_chat
+        message = update.message
+        
+        # 1. Check reply
+        if message.reply_to_message:
+            return message.reply_to_message.from_user
+            
+        # 2. Check all entities for text_mention (provides User object)
+        if message.entities:
+            for entity in message.entities:
+                if entity.type == 'text_mention' and entity.user:
+                    return entity.user
+        
+        # 3. Check arguments for ID or Username
+        if context.args:
+            for arg in context.args:
+                # Check if it's a numeric User ID
+                if arg.isdigit():
+                    try:
+                        target_user_id = int(arg)
+                        chat_member = await context.bot.get_chat_member(chat.id, target_user_id)
+                        return chat_member.user
+                    except:
+                        # Try database if not in chat
+                        async with aiosqlite.connect(self.db.db_file) as db:
+                            cursor = await db.execute(
+                                'SELECT user_id, first_name, username FROM approved_users WHERE chat_id = ? AND user_id = ?',
+                                (chat.id, target_user_id)
+                            )
+                            row = await cursor.fetchone()
+                            if row:
+                                from telegram import User
+                                return User(id=row[0], first_name=row[1], is_bot=False, username=row[2])
+                
+                # Check if it's a username
+                elif arg.startswith('@'):
+                    target_username = arg[1:].lower()
+                    
+                    # Try to find in admins first
+                    try:
+                        admins = await context.bot.get_chat_administrators(chat.id)
+                        for admin in admins:
+                            if admin.user.username and admin.user.username.lower() == target_username:
+                                return admin.user
+                    except:
+                        pass
+                        
+                    # Try database
+                    async with aiosqlite.connect(self.db.db_file) as db:
+                        cursor = await db.execute(
+                            'SELECT user_id, first_name FROM approved_users WHERE chat_id = ? AND LOWER(username) = ?',
+                            (chat.id, target_username)
+                        )
+                        row = await cursor.fetchone()
+                        if row:
+                            from telegram import User
+                            return User(id=row[0], first_name=row[1], is_bot=False, username=target_username)
+        
+        # 4. Last resort: check any mention entities even if not in args
+        if message.entities:
+            for entity in message.entities:
+                if entity.type == 'mention':
+                    mention_text = message.text[entity.offset:entity.offset + entity.length]
+                    target_username = mention_text[1:].lower()
+                    
+                    # Try admins
+                    try:
+                        admins = await context.bot.get_chat_administrators(chat.id)
+                        for admin in admins:
+                            if admin.user.username and admin.user.username.lower() == target_username:
+                                return admin.user
+                    except:
+                        pass
+                        
+                    # Try database
+                    async with aiosqlite.connect(self.db.db_file) as db:
+                        cursor = await db.execute(
+                            'SELECT user_id, first_name FROM approved_users WHERE chat_id = ? AND LOWER(username) = ?',
+                            (chat.id, target_username)
+                        )
+                        row = await cursor.fetchone()
+                        if row:
+                            from telegram import User
+                            return User(id=row[0], first_name=row[1], is_bot=False, username=target_username)
+                            
+        return None
+
     async def cmd_approve(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /free command - Free member to bypass restrictions"""
         chat = update.effective_chat
@@ -831,86 +920,8 @@ class ModerationBot:
             )
             return
         
-        # Get the user to approve - support reply, mention, username, or user ID
-        target_user = None
-        
-        # 1. Check if replying to a message
-        if update.message.reply_to_message:
-            target_user = update.message.reply_to_message.from_user
-        
-        # 2. Check for text_mention (clicked mention)
-        if not target_user and update.message.entities:
-            for entity in update.message.entities:
-                if entity.type == 'text_mention' and entity.user:
-                    target_user = entity.user
-                    break
-        
-        # 3. Check context.args for ID or mention
-        if not target_user and context.args:
-            arg = context.args[0]
-            
-            # Check if it's a numeric User ID
-            if arg.isdigit():
-                try:
-                    target_user_id = int(arg)
-                    chat_member = await context.bot.get_chat_member(chat.id, target_user_id)
-                    target_user = chat_member.user
-                except Exception:
-                    await self.send_auto_delete_message(
-                        update.message,
-                        style_text(f"❌ Could not find user with ID {arg} in this chat."),
-                        delete_after=60,
-                        parse_mode='HTML'
-                    )
-                    return
-            
-            # Check if it's a username (starts with @)
-            elif arg.startswith('@'):
-                target_username = arg[1:].lower()
-                
-                # Try to find user in the message mentions first
-                if update.message.entities:
-                    for entity in update.message.entities:
-                        if entity.type == 'mention':
-                            mention_text = update.message.text[entity.offset:entity.offset + entity.length]
-                            if mention_text[1:].lower() == target_username:
-                                # Standard mentions don't provide User object
-                                # But we can try to find them in the chat admins
-                                try:
-                                    admins = await context.bot.get_chat_administrators(chat.id)
-                                    for admin in admins:
-                                        if admin.user.username and admin.user.username.lower() == target_username:
-                                            target_user = admin.user
-                                            break
-                                except:
-                                    pass
-                
-                # If still not found, search in our database of approved users
-                if not target_user:
-                    async with aiosqlite.connect(self.db.db_file) as db:
-                        cursor = await db.execute(
-                            'SELECT user_id, first_name FROM approved_users WHERE chat_id = ? AND LOWER(username) = ?',
-                            (chat.id, target_username)
-                        )
-                        row = await cursor.fetchone()
-                        if row:
-                            # Create a dummy user object with ID and first name
-                            from telegram import User
-                            target_user = User(id=row[0], first_name=row[1], is_bot=False, username=target_username)
-                
-                # If we still don't have a user, we'll inform them how to do it properly.
-                if not target_user:
-                    await self.send_auto_delete_message(
-                        update.message,
-                        style_text("ℹ️ <b>How to free by mention:</b>\n\n"
-                                  "1. Type <code>/free</code>\n"
-                                  "2. Select the user from the list that pops up\n"
-                                  "<i>OR</i> reply to their message with <code>/free</code>\n"
-                                  "<i>OR</i> use their User ID: <code>/free 123456789</code>"),
-                        delete_after=60,
-                        parse_mode='HTML'
-                    )
-                    return
+        # Resolve the target user
+        target_user = await self._resolve_target_user(update, context)
         
         if not target_user:
             await self.send_auto_delete_message(
@@ -992,49 +1003,8 @@ class ModerationBot:
         else:
             return
         
-        target_user = None
-        
-        # 1. Reply
-        if update.message.reply_to_message:
-            target_user = update.message.reply_to_message.from_user
-        
-        # 2. Text mention (clicked)
-        if not target_user and update.message.entities:
-            for entity in update.message.entities:
-                if entity.type == 'text_mention' and entity.user:
-                    target_user = entity.user
-                    break
-        
-        # 3. ID or username
-        if not target_user and context.args:
-            arg = context.args[0]
-            if arg.isdigit():
-                try:
-                    target_user_id = int(arg)
-                    chat_member = await context.bot.get_chat_member(chat.id, target_user_id)
-                    target_user = chat_member.user
-                except Exception:
-                    # User not in chat, try searching in database
-                    async with aiosqlite.connect(self.db.db_file) as db:
-                        cursor = await db.execute(
-                            'SELECT user_id, first_name FROM approved_users WHERE chat_id = ? AND user_id = ?',
-                            (chat.id, int(arg))
-                        )
-                        row = await cursor.fetchone()
-                        if row:
-                            from telegram import User
-                            target_user = User(id=row[0], first_name=row[1], is_bot=False)
-            elif arg.startswith('@'):
-                target_username = arg[1:].lower()
-                async with aiosqlite.connect(self.db.db_file) as db:
-                    cursor = await db.execute(
-                        'SELECT user_id, first_name FROM approved_users WHERE chat_id = ? AND LOWER(username) = ?',
-                        (chat.id, target_username)
-                    )
-                    row = await cursor.fetchone()
-                    if row:
-                        from telegram import User
-                        target_user = User(id=row[0], first_name=row[1], is_bot=False, username=target_username)
+        # Resolve the target user
+        target_user = await self._resolve_target_user(update, context)
         
         if not target_user:
             await self.send_auto_delete_message(
