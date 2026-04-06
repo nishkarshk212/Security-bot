@@ -1238,6 +1238,49 @@ class ModerationBot:
         # Get settings first (needed for other checks)
         settings = await self.db.get_settings(chat.id)
         
+        # Check command blocking (skip for users with exemption)
+        # We check this EARLY before admin checks so that we can block regular user commands
+        # but we need to ensure admins can still use commands.
+        if settings['block_commands'] and message.text:
+            # Detect commands starting with / or !
+            # Also check message.entities for 'bot_command' type
+            is_command = False
+            if message.text.strip().startswith(('/', '!')):
+                is_command = True
+            elif message.entities:
+                for entity in message.entities:
+                    if entity.type == 'bot_command':
+                        is_command = True
+                        break
+            
+            if is_command:
+                # Now check if the user is an admin or exempt
+                is_admin = False
+                if user:
+                    try:
+                        chat_member = await context.bot.get_chat_member(chat.id, user.id)
+                        is_admin = chat_member.status in ['creator', 'administrator']
+                    except:
+                        is_admin = False
+                
+                if not is_admin:
+                    # Check if user is approved and get exemptions
+                    is_approved = await self.db.is_user_approved(chat.id, user.id)
+                    exemptions = await self.db.get_user_exemptions(chat.id, user.id) if is_approved else None
+                    
+                    if not (exemptions and exemptions.get('exempt_commands', False)):
+                        try:
+                            await message.delete()
+                            await self.send_auto_delete_message(
+                                message,
+                                f"⌨️ Commands are not allowed in this group.",
+                                delete_after=60,
+                                parse_mode='HTML'
+                            )
+                        except:
+                            pass
+                        return
+
         # Check if user is admin or approved (bypass restrictions)
         is_admin = False
         is_approved = False
@@ -1383,25 +1426,6 @@ class ModerationBot:
                     await self.send_auto_delete_message(
                         message,
                         f"🔗 Links are not allowed in this group.",
-                        delete_after=60,
-                        parse_mode='HTML'
-                    )
-                except:
-                    pass
-                return
-        
-        # Check command blocking (skip for users with exemption)
-        if settings['block_commands'] and message.text:
-            # Detect commands starting with / or !
-            command_pattern = r'^[\/!]\w+'
-            if re.match(command_pattern, message.text.strip()):
-                if exemptions and exemptions['exempt_commands']:
-                    return  # User is exempt
-                try:
-                    await message.delete()
-                    await self.send_auto_delete_message(
-                        message,
-                        f"⌨️ Commands are not allowed in this group.",
                         delete_after=60,
                         parse_mode='HTML'
                     )
