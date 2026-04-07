@@ -205,7 +205,7 @@ class DatabaseManager:
                     exempt_stickers, exempt_media, exempt_forwards, exempt_commands, 
                     exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, 
                     exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, exempt_links, approved_at) 
-                   VALUES (?, ?, ?, ?, ?, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, CURRENT_TIMESTAMP)''',
+                   VALUES (?, ?, ?, ?, ?, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, CURRENT_TIMESTAMP)''',
                 (chat_id, user_id, username, first_name, approved_by)
             )
             await db.commit()
