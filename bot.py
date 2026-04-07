@@ -231,19 +231,19 @@ class DatabaseManager:
             if row:
                 return {
                     'exempt_stickers': bool(row[0]),
-                    'exempt_media': bool(row[3]),
-                    'exempt_forwards': bool(row[4]),
-                    'exempt_commands': bool(row[6]),
-                    'exempt_premium_stickers': bool(row[7]),
-                    'exempt_channel_posts': bool(row[8]),
-                    'exempt_pinned_messages': bool(row[9]),
-                    'exempt_contacts': bool(row[10]),
-                    'exempt_location': bool(row[11]),
-                    'exempt_documents': bool(row[12]),
-                    'exempt_voice': bool(row[13]),
-                    'exempt_video_note': bool(row[14]),
-                    'exempt_poll': bool(row[15]),
-                    'exempt_embed_link': bool(row[16]),
+                    'exempt_media': bool(row[1]),
+                    'exempt_forwards': bool(row[2]),
+                    'exempt_commands': bool(row[3]),
+                    'exempt_premium_stickers': bool(row[4]),
+                    'exempt_channel_posts': bool(row[5]),
+                    'exempt_pinned_messages': bool(row[6]),
+                    'exempt_contacts': bool(row[7]),
+                    'exempt_location': bool(row[8]),
+                    'exempt_documents': bool(row[9]),
+                    'exempt_voice': bool(row[10]),
+                    'exempt_video_note': bool(row[11]),
+                    'exempt_poll': bool(row[12]),
+                    'exempt_embed_link': bool(row[13]),
                 }
             return None
     
@@ -1427,38 +1427,63 @@ class ModerationBot:
         # Check if already approved
         is_approved = await self.db.is_user_approved(chat.id, target_user.id)
         
-        if is_approved:
-            exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
-            approval_text = (
-                f"✅ <b>{target_user.mention_html()} is already freed!</b>\n\n"
-                f"Current exemption settings:\n\n"
-                f"<i>Tap buttons below to toggle exemptions</i>"
+        try:
+            if is_approved:
+                exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
+                if not exemptions:
+                    await self.send_auto_delete_message(
+                        update.message,
+                        style_text("❌ Error: Failed to load exemption settings."),
+                        delete_after=60,
+                        parse_mode='HTML'
+                    )
+                    return
+                approval_text = (
+                    f"✅ <b>{target_user.mention_html()} is already freed!</b>\n\n"
+                    f"Current exemption settings:\n\n"
+                    f"<i>Tap buttons below to toggle exemptions</i>"
+                )
+            else:
+                approved_by_id = user.id if user else 0
+                await self.db.add_approved_user(
+                    chat.id,
+                    target_user.id,
+                    target_user.username or "",
+                    target_user.first_name or "",
+                    approved_by_id
+                )
+                # Fetch the newly created exemptions
+                exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
+                if not exemptions:
+                    await self.send_auto_delete_message(
+                        update.message,
+                        style_text("❌ Error: Failed to create exemption settings."),
+                        delete_after=60,
+                        parse_mode='HTML'
+                    )
+                    return
+                approval_text = (
+                    f"✅ <b>Member Freed!</b>\n\n"
+                    f"{target_user.mention_html()} can now configure exemptions:\n\n"
+                    f"<i>Tap buttons below to toggle exemptions</i>"
+                )
+            
+            # Send approval message with 8-button grid
+            keyboard = self._create_approval_keyboard(exemptions, target_user.id)
+            
+            await update.message.reply_text(
+                approval_text,
+                reply_markup=keyboard,
+                parse_mode='HTML'
             )
-        else:
-            approved_by_id = user.id if user else 0
-            await self.db.add_approved_user(
-                chat.id,
-                target_user.id,
-                target_user.username or "",
-                target_user.first_name or "",
-                approved_by_id
+        except Exception as e:
+            logger.error(f"❌ Error in /free command: {e}")
+            await self.send_auto_delete_message(
+                update.message,
+                style_text(f"❌ Error: {str(e)}"),
+                delete_after=60,
+                parse_mode='HTML'
             )
-            # Fetch the newly created exemptions
-            exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
-            approval_text = (
-                f"✅ <b>Member Freed!</b>\n\n"
-                f"{target_user.mention_html()} can now configure exemptions:\n\n"
-                f"<i>Tap buttons below to toggle exemptions</i>"
-            )
-        
-        # Send approval message with 8-button grid
-        keyboard = self._create_approval_keyboard(exemptions, target_user.id)
-        
-        await update.message.reply_text(
-            approval_text,
-            reply_markup=keyboard,
-            parse_mode='HTML'
-        )
 
     async def cmd_unapprove(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /unfree command - Remove member from free list"""
