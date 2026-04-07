@@ -1513,8 +1513,8 @@ class ModerationBot:
                         delete_after=60,
                         parse_mode='HTML'
                     )
-                except:
-                    pass
+                except Exception as e:
+                    logger.error(f"Failed to delete premium sticker: {e}")
                 return
     
     async def run(self):
