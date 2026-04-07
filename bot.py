@@ -1265,6 +1265,22 @@ class ModerationBot:
         # Get settings first (needed for other checks)
         settings = await self.db.get_settings(chat.id)
         
+        # LOGGING FOR DEBUGGING
+        if message.sticker:
+            logger.info(f"Sticker detected in {chat.title} ({chat.id}) from {user.first_name if user else 'Unknown'}")
+            logger.info(f"Sticker details: is_animated={message.sticker.is_animated}, is_video={message.sticker.is_video}")
+            if hasattr(message.sticker, 'premium_animation'):
+                logger.info(f"Sticker has premium_animation: {message.sticker.premium_animation is not None}")
+            if hasattr(message.sticker, 'custom_emoji_id'):
+                logger.info(f"Sticker has custom_emoji_id: {message.sticker.custom_emoji_id}")
+        
+        # Check custom emoji in text/caption
+        entities = list(message.entities or []) + list(message.caption_entities or [])
+        for entity in entities:
+            if hasattr(entity, 'custom_emoji_id') and entity.custom_emoji_id:
+                logger.info(f"Custom emoji detected in {chat.title} ({chat.id}) from {user.first_name if user else 'Unknown'}")
+                break
+
         # Check command blocking (skip for users with exemption)
         # We check this EARLY before admin checks so that we can block regular user commands
         # but we need to ensure admins can still use commands.
@@ -1457,17 +1473,31 @@ class ModerationBot:
             is_premium = False
             
             # Check regular premium stickers
-            # In PTB v20+, premium stickers have premium_animation attribute
+            # In PTB v20+, premium stickers have premium_animation attribute or are of type CUSTOM_EMOJI
             if message.sticker:
-                if (hasattr(message.sticker, 'premium_animation') and message.sticker.premium_animation) or \
-                   (hasattr(message.sticker, 'custom_emoji_id') and message.sticker.custom_emoji_id):
+                sticker = message.sticker
+                # Check for standard premium flags
+                if (hasattr(sticker, 'premium_animation') and sticker.premium_animation) or \
+                   (hasattr(sticker, 'custom_emoji_id') and sticker.custom_emoji_id):
                     is_premium = True
+                
+                # Check for StickerType if available
+                if not is_premium and hasattr(sticker, 'type') and sticker.type == 'custom_emoji':
+                    is_premium = True
+                    
+                # Some animated/video stickers are premium without the flag being caught correctly
+                # We can log these to see if they should be blocked
+                if not is_premium and (sticker.is_animated or sticker.is_video):
+                    logger.info(f"Checking animated/video sticker: set_name={getattr(sticker, 'set_name', 'Unknown')}")
             
             # Check custom emojis in text or captions (these are from Premium packs)
             if not is_premium:
                 entities = list(message.entities or []) + list(message.caption_entities or [])
                 for entity in entities:
                     if hasattr(entity, 'custom_emoji_id') and entity.custom_emoji_id:
+                        is_premium = True
+                        break
+                    if entity.type == 'custom_emoji':
                         is_premium = True
                         break
             
