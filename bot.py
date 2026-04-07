@@ -651,14 +651,11 @@ class ModerationBot:
                     callback_data="toggle_block_media"
                 ),
             ],
-            # Row 3: Forwards & Links
+            # Row 3: Forwards
             [
                 InlineKeyboardButton(
                     f"{'✅' if settings['block_forwards'] else '❌'} ↗️ Forwards",
                     callback_data="toggle_block_forwards"
-                ),
-                InlineKeyboardButton(
-                    f"{'✅' if settings['block_links'] else '❌'} 🔗 Links",
                 ),
             ],
             # Row 4: Commands & Premium Stickers
@@ -1291,7 +1288,7 @@ class ModerationBot:
             settings = await self.db.get_settings(chat_id)
             
             main_permissions = [
-                'block_stickers', 'block_media', 'block_forwards', 'block_links',
+                'block_stickers', 'block_media', 'block_forwards',
                 'block_commands', 'block_premium_stickers', 'block_channel_posts', 'block_pinned_messages'
             ]
             
