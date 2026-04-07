@@ -991,9 +991,10 @@ class ModerationBot:
             
             # Update keyboard
             keyboard = self._create_approval_keyboard(exemptions, target_user_id)
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
             try:
-                await query.message.edit_reply_markup(reply_markup=keyboard)
+                await query.message.edit_reply_markup(reply_markup=reply_markup)
             except Exception as e:
                 if "Message is not modified" not in str(e):
                     raise
@@ -1470,10 +1471,11 @@ class ModerationBot:
             
             # Send approval message with 8-button grid
             keyboard = self._create_approval_keyboard(exemptions, target_user.id)
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
             await update.message.reply_text(
                 approval_text,
-                reply_markup=keyboard,
+                reply_markup=reply_markup,
                 parse_mode='HTML'
             )
         except Exception as e:
