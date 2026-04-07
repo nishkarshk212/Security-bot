@@ -197,7 +197,7 @@ class DatabaseManager:
             await db.execute(
                 '''INSERT OR REPLACE INTO approved_users 
                    (chat_id, user_id, username, first_name, approved_by, 
-                    exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, 
+                    exempt_stickers, exempt_media, exempt_forwards, exempt_commands, 
                     exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, 
                     exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, approved_at) 
                    VALUES (?, ?, ?, ?, ?, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, CURRENT_TIMESTAMP)''',
@@ -210,12 +210,12 @@ class DatabaseManager:
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
                 '''UPDATE approved_users 
-                   SET exempt_stickers = ?, exempt_media = ?, 
-                       exempt_forwards = ?, exempt_links = ?, exempt_commands = ?,
+                   SET exempt_stickers = ?, exempt_media = ?,
+                       exempt_forwards = ?, exempt_commands = ?,
                        exempt_premium_stickers = ?, exempt_channel_posts = ?, exempt_pinned_messages = ?,
                        exempt_contacts = ?, exempt_location = ?, exempt_documents = ?, exempt_voice = ?, exempt_video_note = ?, exempt_poll = ?, exempt_embed_link = ?
                    WHERE chat_id = ? AND user_id = ?''',
-                (exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, chat_id, user_id)
+                (exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, chat_id, user_id)
             )
             await db.commit()
     
@@ -223,7 +223,7 @@ class DatabaseManager:
         """Get user's exemption settings"""
         async with aiosqlite.connect(self.db_file) as db:
             cursor = await db.execute(
-                'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link FROM approved_users WHERE chat_id = ? AND user_id = ?',
+                'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link FROM approved_users WHERE chat_id = ? AND user_id = ?',
                 (chat_id, user_id)
             )
             row = await cursor.fetchone()
@@ -734,15 +734,7 @@ class ModerationBot:
                     callback_data=f"exempt_stickers_{user_id}"
                 ),
                 InlineKeyboardButton(
-                    f"{'✅' if exemptions.get('exempt_photos', True) else '❌'} 📸 Photos",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    f"{'✅' if exemptions.get('exempt_videos', True) else '❌'} 🎥 Videos",
-                ),
-                InlineKeyboardButton(
-                    f"{'✅' if exemptions['exempt_media'] else '❌'} 📁 Media (All)",
+                    f"{'✅' if exemptions['exempt_media'] else '❌'} 📁 Media",
                     callback_data=f"exempt_media_{user_id}"
                 ),
             ],
@@ -752,73 +744,45 @@ class ModerationBot:
                     callback_data=f"exempt_forwards_{user_id}"
                 ),
                 InlineKeyboardButton(
-                    f"{'✅' if exemptions['exempt_links'] else '❌'} 🔗 Links",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
                     f"{'✅' if exemptions['exempt_commands'] else '❌'} ⌨️ Commands",
                     callback_data=f"exempt_commands_{user_id}"
                 ),
+            ],
+            [
                 InlineKeyboardButton(
                     f"{'✅' if exemptions['exempt_premium_stickers'] else '❌'} ⭐ Premium Stickers",
                     callback_data=f"exempt_premium_stickers_{user_id}"
                 ),
-            ],
-            [
                 InlineKeyboardButton(
                     f"{'✅' if exemptions['exempt_channel_posts'] else '❌'} 📢 Channel Posts",
                     callback_data=f"exempt_channel_posts_{user_id}"
                 ),
+            ],
+            [
                 InlineKeyboardButton(
                     f"{'✅' if exemptions.get('exempt_pinned_messages', False) else '❌'} 📌 Pinned Messages",
                     callback_data=f"exempt_pinned_messages_{user_id}"
                 ),
-            ],
-            [
                 InlineKeyboardButton(
-                    f"{'✅' if exemptions.get('exempt_contacts', False) else '❌'} 👤 Contacts",
+                    f"{'✅' if exemptions.get('exempt_contacts', True) else '❌'} 👤 Contacts",
                     callback_data=f"exempt_contacts_{user_id}"
                 ),
+            ],
+            [
                 InlineKeyboardButton(
-                    f"{'✅' if exemptions.get('exempt_location', False) else '❌'} 📍 Location",
+                    f"{'✅' if exemptions.get('exempt_location', True) else '❌'} 📍 Location",
                     callback_data=f"exempt_location_{user_id}"
                 ),
-            ],
-            [
                 InlineKeyboardButton(
-                    f"{'✅' if exemptions.get('exempt_documents', False) else '❌'} 📄 Documents",
+                    f"{'✅' if exemptions.get('exempt_documents', True) else '❌'} 📄 Documents",
                     callback_data=f"exempt_documents_{user_id}"
                 ),
-                InlineKeyboardButton(
-                    f"{'✅' if exemptions.get('exempt_voice', False) else '❌'} 🎤 Voice",
-                    callback_data=f"exempt_voice_{user_id}"
-                ),
             ],
             [
-                InlineKeyboardButton(
-                    f"{'✅' if exemptions.get('exempt_video_note', False) else '❌'} 📹 Video Note",
-                    callback_data=f"exempt_video_note_{user_id}"
-                ),
-                InlineKeyboardButton(
-                    f"{'✅' if exemptions.get('exempt_poll', False) else '❌'} 📊 Poll",
-                    callback_data=f"exempt_poll_{user_id}"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    f"{'✅' if exemptions.get('exempt_embed_link', False) else '❌'} 🔗 Embed Link",
-                    callback_data=f"exempt_embed_link_{user_id}"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    "❌ Close",
-                    callback_data="close_approval"
-                ),
+                InlineKeyboardButton("🔒 Close", callback_data=f"close_approval_{user_id}"),
             ],
         ]
-        return InlineKeyboardMarkup(keyboard)
+        return keyboard
     
     def _format_settings_text(self, settings):
         """Format settings into readable text with category summaries"""
@@ -1010,11 +974,8 @@ class ModerationBot:
                 chat_id,
                 target_user_id,
                 exemptions['exempt_stickers'],
-                exemptions.get('exempt_photos', True),
-                exemptions.get('exempt_videos', True),
                 exemptions['exempt_media'],
                 exemptions['exempt_forwards'],
-                exemptions['exempt_links'],
                 exemptions['exempt_commands'],
                 exemptions['exempt_premium_stickers'],
                 exemptions['exempt_channel_posts'],
@@ -1050,7 +1011,7 @@ class ModerationBot:
         if data == "view_freed_users":
             async with aiosqlite.connect(self.db.db_file) as db:
                 cursor = await db.execute(
-                    'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
+                    'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
                     (chat_id,)
                 )
                 rows = await cursor.fetchall()
@@ -1635,7 +1596,7 @@ class ModerationBot:
         
         async with aiosqlite.connect(self.db.db_file) as db:
             cursor = await db.execute(
-                'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
+                'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
                 (chat.id,)
             )
             rows = await cursor.fetchall()
