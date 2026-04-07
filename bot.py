@@ -1484,6 +1484,11 @@ class ModerationBot:
                 # Check for StickerType if available
                 if not is_premium and hasattr(sticker, 'type') and sticker.type == 'custom_emoji':
                     is_premium = True
+                
+                # Check if it's from a custom emoji pack (set_name starts with 'emoji')
+                if not is_premium and hasattr(sticker, 'set_name') and sticker.set_name:
+                    if sticker.set_name.startswith('emoji'):
+                        is_premium = True
                     
                 # Some animated/video stickers are premium without the flag being caught correctly
                 # We can log these to see if they should be blocked
