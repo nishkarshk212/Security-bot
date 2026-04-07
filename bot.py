@@ -1369,10 +1369,11 @@ class ModerationBot:
             return
         
         # Check custom emoji blocking (skip for users with exemption)
-        # Custom emojis appear in text messages with custom_emoji_id in entities
-        if settings['block_stickers'] and message.text and message.entities:
+        # Custom emojis appear in text messages or captions with custom_emoji_id in entities
+        if settings['block_stickers']:
+            entities = list(message.entities or []) + list(message.caption_entities or [])
             has_custom_emoji = False
-            for entity in message.entities:
+            for entity in entities:
                 if hasattr(entity, 'custom_emoji_id') and entity.custom_emoji_id:
                     has_custom_emoji = True
                     break
@@ -1456,12 +1457,16 @@ class ModerationBot:
             is_premium = False
             
             # Check regular premium stickers
-            if message.sticker and hasattr(message.sticker, 'is_premium') and message.sticker.is_premium:
-                is_premium = True
+            # In PTB v20+, premium stickers have premium_animation attribute
+            if message.sticker:
+                if (hasattr(message.sticker, 'premium_animation') and message.sticker.premium_animation) or \
+                   (hasattr(message.sticker, 'custom_emoji_id') and message.sticker.custom_emoji_id):
+                    is_premium = True
             
-            # Check custom emojis in text (these are from Premium packs)
-            if not is_premium and message.text and message.entities:
-                for entity in message.entities:
+            # Check custom emojis in text or captions (these are from Premium packs)
+            if not is_premium:
+                entities = list(message.entities or []) + list(message.caption_entities or [])
+                for entity in entities:
                     if hasattr(entity, 'custom_emoji_id') and entity.custom_emoji_id:
                         is_premium = True
                         break
