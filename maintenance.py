@@ -284,6 +284,7 @@ class MaintenanceManager:
         """Return command handlers"""
         return [
             CommandHandler("restart", self.cmd_restart),
+            CommandHandler("reload", self.cmd_restart),
             CommandHandler("gban", self.cmd_gban),
             CommandHandler("ungban", self.cmd_ungban),
             CommandHandler("gbanlist", self.cmd_gbanlist),
