@@ -71,6 +71,7 @@ class DatabaseManager:
                     block_premium_stickers BOOLEAN DEFAULT 0,
                     block_channel_posts BOOLEAN DEFAULT 0,
                     block_pinned_messages BOOLEAN DEFAULT 0,
+                    block_bots BOOLEAN DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -100,6 +101,11 @@ class DatabaseManager:
             # Migration: Add columns if they don't exist
             try:
                 await db.execute('ALTER TABLE group_settings ADD COLUMN block_pinned_messages BOOLEAN DEFAULT 0')
+            except:
+                pass
+
+            try:
+                await db.execute('ALTER TABLE group_settings ADD COLUMN block_bots BOOLEAN DEFAULT 0')
             except:
                 pass
 
@@ -140,6 +146,7 @@ class DatabaseManager:
                     'block_premium_stickers': bool(row[6]),
                     'block_channel_posts': bool(row[7]),
                     'block_pinned_messages': bool(row[8]) if len(row) > 8 else False,
+                    'block_bots': bool(row[9]) if len(row) > 9 else False,
                 }
             else:
                 # Create default settings
@@ -589,7 +596,14 @@ class ModerationBot:
                     callback_data="toggle_block_pinned_messages"
                 ),
             ],
-            # Row 5: Action Buttons
+            # Row 5: Bot Protection
+            [
+                InlineKeyboardButton(
+                    f"{'✅' if settings.get('block_bots', False) else '❌'} 🛡️ Bot Protection",
+                    callback_data="toggle_block_bots"
+                ),
+            ],
+            # Row 6: Action Buttons
             [
                 InlineKeyboardButton("🔄 Refresh", callback_data="refresh_settings"),
                 InlineKeyboardButton("❌ Close", callback_data="close_settings"),
@@ -662,7 +676,8 @@ class ModerationBot:
             f"⌨️ Block Commands: {status_emoji(settings['block_commands'])}\n"
             f"⭐ Block Premium Stickers: {status_emoji(settings['block_premium_stickers'])}\n"
             f"📢 Block Channel Posts: {status_emoji(settings['block_channel_posts'])}\n"
-            f"📌 Block Pinned Messages: {status_emoji(settings.get('block_pinned_messages', False))}\n\n"
+            f"📌 Block Pinned Messages: {status_emoji(settings.get('block_pinned_messages', False))}\n"
+            f"🛡️ Bot Protection: {status_emoji(settings.get('block_bots', False))}\n\n"
             "Tap buttons above to toggle features.\n"
             "Use /free to exempt members from restrictions."
         )
@@ -920,6 +935,7 @@ class ModerationBot:
                 'block_premium_stickers': 'Premium Sticker Blocking',
                 'block_channel_posts': 'Channel Post Blocking',
                 'block_pinned_messages': 'Pinned Message Blocking',
+                'block_bots': 'Bot Protection',
             }
             
             feature_name = feature_names.get(setting_name, setting_name)
@@ -1446,6 +1462,31 @@ class ModerationBot:
             # Initialize settings if they don't exist for this chat
             await self.db.initialize_settings(chat.id)
             settings = await self.db.get_settings(chat.id)
+        
+        # Check for bot protection (block new bots)
+        if settings.get('block_bots', False) and message.new_chat_members:
+            # Check if the user who added them is an admin
+            is_admin = await self._is_admin(update, context)
+            if not is_admin:
+                for member in message.new_chat_members:
+                    if member.is_bot and member.id != context.bot.id:
+                        try:
+                            # Ban the bot (which also removes it)
+                            await chat.ban_member(member.id)
+                            # Unban immediately so it can be added later by an admin if needed
+                            await chat.unban_member(member.id)
+                            
+                            logger.info(f"🛡️ Bot protection: Removed bot {member.full_name} ({member.id}) from {chat.id}")
+                            
+                            await self.send_auto_delete_message(
+                                message,
+                                f"🛡️ <b>Bot Protection:</b> Only admins can add bots to this group. {member.mention_html()} has been removed.",
+                                delete_after=60,
+                                parse_mode='HTML'
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to remove bot: {e}")
+                return # Don't process further if we're handling new members
         
         # LOGGING FOR DEBUGGING
         if message.sticker:
