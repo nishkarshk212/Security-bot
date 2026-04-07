@@ -2083,19 +2083,31 @@ class ModerationBot:
         # This handles photos, videos, audio, animations
         # Voice, video_note, documents, contacts, location have their own separate settings
         
-        # Check general media blocking (audio, animation, and other media)
+        # Check general media blocking (photos, videos, audio, animation)
         if settings['block_media']:
             has_media = False
             media_type = "Media"
             
+            # Check for photos
+            if message.photo:
+                logger.info(f"📸 Photo detected from user {user.id if user else 'unknown'} in {chat.id}")
+                has_media = True
+                media_type = "Photos"
+            
+            # Check for videos
+            elif message.video:
+                logger.info(f"🎥 Video detected from user {user.id if user else 'unknown'} in {chat.id}")
+                has_media = True
+                media_type = "Videos"
+            
             # Check for audio files
-            if message.audio:
+            elif message.audio:
                 logger.info(f"🎵 Audio detected from user {user.id if user else 'unknown'} in {chat.id}")
                 has_media = True
                 media_type = "Audio files"
             
             # Check for animations/GIFs
-            if message.animation:
+            elif message.animation:
                 logger.info(f"🎬 Animation/GIF detected from user {user.id if user else 'unknown'} in {chat.id}")
                 has_media = True
                 media_type = "GIFs/Animations"
