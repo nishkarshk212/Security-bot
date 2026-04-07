@@ -54,7 +54,7 @@ start_bot() {
     fi
     
     # Start bot in background
-    nohup $VIRTUAL_ENV "$BOT_SCRIPT" > bot_output.log 2>&1 &
+    nohup .venv/bin/python "$BOT_SCRIPT" > bot_output.log 2>&1 &
     BOT_PID=$!
     
     log_message "${GREEN}Bot started with PID: $BOT_PID${NC}"

@@ -25,6 +25,7 @@ import aiosqlite
 from font import Fonts
 from config import START_IMG_URL
 from maintenance import maintenance_manager, OWNER_ID, LOG_CHANNEL_ID
+import sys
 
 # Load environment variables
 load_dotenv()
@@ -1188,46 +1189,11 @@ class ModerationBot:
             )
             return
             
-        # Refresh settings in DB (initializes if missing)
-        try:
-            await self.db.initialize_settings(chat.id)
-            settings = await self.db.get_settings(chat.id)
-            
-            # Get count of freed users
-            freed_count = await self.db.get_approved_users_count(chat.id)
-            
-            # Create keyboard with freed users button
-            keyboard = [
-                [
-                    InlineKeyboardButton(
-                        f"👥 Freed Members: {freed_count}",
-                        callback_data="view_freed_users"
-                    )
-                ],
-                [
-                    InlineKeyboardButton("❌ Close", callback_data="close_reload")
-                ]
-            ]
-            
-            text = style_text(
-                "🔄 **Bot Refreshed Successfully!**\n\n"
-                "Group settings have been reloaded and moderation is active.\n"
-                f"Current freed members: {freed_count}"
-            )
-            
-            await update.message.reply_text(
-                text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
-            )
-        except Exception as e:
-            logger.error(f"Error in reload command: {e}")
-            await self.send_auto_delete_message(
-                update.message,
-                style_text("❌ An error occurred while reloading settings."),
-                delete_after=60,
-                parse_mode='HTML'
-            )
+        await update.message.reply_text(style_text("🔄 Restarting bot to apply changes..."))
+        
+        # Perform a clean restart
+        python = sys.executable
+        os.execl(python, python, *sys.argv)
 
     async def cmd_approved(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /freed command - Show list of freed members"""
