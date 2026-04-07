@@ -599,7 +599,7 @@ class ModerationBot:
             # Row 5: Bot Protection
             [
                 InlineKeyboardButton(
-                    f"{'✅' if settings.get('block_bots', False) else '❌'} 🛡️ Bot Protection",
+                    f"🛡️ Bot Protection: {'✅' if settings.get('block_bots', False) else '❌'}",
                     callback_data="toggle_block_bots"
                 ),
             ],
@@ -925,7 +925,7 @@ class ModerationBot:
             await self.db.update_setting(chat_id, setting_name, int(new_value))
             
             # Show confirmation
-            status = "enabled" if new_value else "disabled"
+            status = "ENABLED" if new_value else "DISABLED"
             feature_names = {
                 'block_stickers': 'Sticker Blocking',
                 'block_media': 'Media Blocking',
@@ -939,8 +939,9 @@ class ModerationBot:
             }
             
             feature_name = feature_names.get(setting_name, setting_name)
+            emoji = "✅" if new_value else "❌"
             confirmation_msg = await query.message.reply_text(
-                style_text(f"✅ {feature_name} has been {status}."),
+                style_text(f"{emoji} {feature_name}: {status}"),
                 parse_mode='HTML'
             )
             
