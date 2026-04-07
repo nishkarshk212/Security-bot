@@ -1369,50 +1369,50 @@ class ModerationBot:
             return
         
         # Check sticker blocking (skip for users with exemption)
-        if message.sticker:
-            is_blocked = False
-            
-            # 1. Detection logic for premium stickers
-            is_premium = False
-            sticker = message.sticker
-            if (hasattr(sticker, 'premium_animation') and sticker.premium_animation) or \
-               (hasattr(sticker, 'custom_emoji_id') and sticker.custom_emoji_id):
-                is_premium = True
-            elif hasattr(sticker, 'type') and sticker.type == 'custom_emoji':
-                is_premium = True
-            elif hasattr(sticker, 'set_name') and sticker.set_name and sticker.set_name.startswith('emoji'):
-                is_premium = True
-            
-            # 2. Blocking logic for premium stickers
-            if is_premium:
-                # Block if group blocks premium stickers AND user is not exempt from them
-                if settings['block_premium_stickers'] and not (exemptions and exemptions.get('exempt_premium_stickers')):
-                    is_blocked = True
-                # OR block if group blocks ALL stickers AND user is not exempt from ALL stickers
-                elif settings['block_stickers'] and not (exemptions and exemptions.get('exempt_stickers')):
-                    is_blocked = True
-            
-            # 3. Blocking logic for regular stickers
-            else:
-                if settings['block_stickers'] and not (exemptions and exemptions.get('exempt_stickers')):
-                    is_blocked = True
-            
-            if is_blocked:
-                try:
-                    await message.delete()
-                    await self.send_auto_delete_message(
-                        message,
-                        f"🚫 Stickers are not allowed in this group.",
-                        delete_after=60,
-                        parse_mode='HTML'
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to delete sticker: {e}")
-                return
+        # Premium Sticker Detection 
+        is_premium = False 
+        sticker = message.sticker 
+        
+        if sticker: 
+            # Official premium fields 
+            if getattr(sticker, "premium_animation", None): 
+                is_premium = True 
+            elif getattr(sticker, "custom_emoji_id", None): 
+                is_premium = True 
+            # Some premium emoji stickers use emoji pack names 
+            elif getattr(sticker, "set_name", None): 
+                if "premium" in sticker.set_name.lower(): 
+                    is_premium = True 
+        
+        # Blocking Logic 
+        is_blocked = False 
+        
+        if is_premium: 
+            if settings.get("block_premium_stickers", False): 
+                if not (exemptions and exemptions.get("exempt_premium_stickers", False)): 
+                    is_blocked = True 
+        elif sticker: 
+            if settings.get("block_stickers", False): 
+                if not (exemptions and exemptions.get("exempt_stickers", False)): 
+                    is_blocked = True 
+        
+        # Action 
+        if is_blocked: 
+            try: 
+                await message.delete() 
+                await self.send_auto_delete_message(
+                    message,
+                    f"🚫 Stickers are not allowed in this group.",
+                    delete_after=60,
+                    parse_mode='HTML'
+                )
+            except Exception as e: 
+                logger.error(f"Failed to delete sticker: {e}")
+            return
         
         # Check custom emoji blocking (skip for users with exemption)
         # Custom emojis appear in text messages or captions with custom_emoji_id in entities
-        if settings['block_stickers'] or settings['block_premium_stickers']:
+        if settings.get('block_stickers') or settings.get('block_premium_stickers'):
             entities = list(message.entities or []) + list(message.caption_entities or [])
             has_custom_emoji = False
             for entity in entities:
@@ -1425,12 +1425,14 @@ class ModerationBot:
             
             if has_custom_emoji:
                 is_blocked = False
-                # Block if group blocks premium stickers AND user is not exempt from them
-                if settings['block_premium_stickers'] and not (exemptions and exemptions.get('exempt_premium_stickers')):
-                    is_blocked = True
-                # OR block if group blocks ALL stickers AND user is not exempt from ALL stickers
-                elif settings['block_stickers'] and not (exemptions and exemptions.get('exempt_stickers')):
-                    is_blocked = True
+                # Custom emojis are considered premium features
+                if settings.get("block_premium_stickers", False): 
+                    if not (exemptions and exemptions.get("exempt_premium_stickers", False)): 
+                        is_blocked = True
+                # If not blocked by premium setting, check if general sticker blocking is on
+                if not is_blocked and settings.get("block_stickers", False): 
+                    if not (exemptions and exemptions.get("exempt_stickers", False)): 
+                        is_blocked = True
                 
                 if is_blocked:
                     try:
