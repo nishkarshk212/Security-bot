@@ -1371,28 +1371,31 @@ class ModerationBot:
         # Check sticker blocking (skip for users with exemption)
         if message.sticker:
             is_blocked = False
-            # Check regular sticker blocking
-            if settings['block_stickers']:
-                if not (exemptions and exemptions.get('exempt_stickers')):
+            
+            # 1. Detection logic for premium stickers
+            is_premium = False
+            sticker = message.sticker
+            if (hasattr(sticker, 'premium_animation') and sticker.premium_animation) or \
+               (hasattr(sticker, 'custom_emoji_id') and sticker.custom_emoji_id):
+                is_premium = True
+            elif hasattr(sticker, 'type') and sticker.type == 'custom_emoji':
+                is_premium = True
+            elif hasattr(sticker, 'set_name') and sticker.set_name and sticker.set_name.startswith('emoji'):
+                is_premium = True
+            
+            # 2. Blocking logic for premium stickers
+            if is_premium:
+                # Block if group blocks premium stickers AND user is not exempt from them
+                if settings['block_premium_stickers'] and not (exemptions and exemptions.get('exempt_premium_stickers')):
+                    is_blocked = True
+                # OR block if group blocks ALL stickers AND user is not exempt from ALL stickers
+                elif settings['block_stickers'] and not (exemptions and exemptions.get('exempt_stickers')):
                     is_blocked = True
             
-            # Check premium sticker blocking (if not already blocked)
-            if not is_blocked and settings['block_premium_stickers']:
-                is_premium = False
-                sticker = message.sticker
-                # Detection logic for premium stickers
-                if (hasattr(sticker, 'premium_animation') and sticker.premium_animation) or \
-                   (hasattr(sticker, 'custom_emoji_id') and sticker.custom_emoji_id):
-                    is_premium = True
-                elif hasattr(sticker, 'type') and sticker.type == 'custom_emoji':
-                    is_premium = True
-                elif hasattr(sticker, 'set_name') and sticker.set_name and sticker.set_name.startswith('emoji'):
-                    is_premium = True
-                
-                if is_premium:
-                    # For premium stickers, user needs either 'exempt_stickers' OR 'exempt_premium_stickers'
-                    if not (exemptions and (exemptions.get('exempt_stickers') or exemptions.get('exempt_premium_stickers'))):
-                        is_blocked = True
+            # 3. Blocking logic for regular stickers
+            else:
+                if settings['block_stickers'] and not (exemptions and exemptions.get('exempt_stickers')):
+                    is_blocked = True
             
             if is_blocked:
                 try:
@@ -1422,15 +1425,12 @@ class ModerationBot:
             
             if has_custom_emoji:
                 is_blocked = False
-                # If block_stickers is on, check regular exemption
-                if settings['block_stickers']:
-                    if not (exemptions and exemptions.get('exempt_stickers')):
-                        is_blocked = True
-                
-                # If not already blocked and block_premium_stickers is on
-                if not is_blocked and settings['block_premium_stickers']:
-                    if not (exemptions and (exemptions.get('exempt_stickers') or exemptions.get('exempt_premium_stickers'))):
-                        is_blocked = True
+                # Block if group blocks premium stickers AND user is not exempt from them
+                if settings['block_premium_stickers'] and not (exemptions and exemptions.get('exempt_premium_stickers')):
+                    is_blocked = True
+                # OR block if group blocks ALL stickers AND user is not exempt from ALL stickers
+                elif settings['block_stickers'] and not (exemptions and exemptions.get('exempt_stickers')):
+                    is_blocked = True
                 
                 if is_blocked:
                     try:
@@ -1543,10 +1543,21 @@ class ModerationBot:
                 pass
 
 
+import fcntl
+
+
 async def main():
     """Main entry point"""
     if not BOT_TOKEN:
         print("❌ Error: BOT_TOKEN not found in .env file!")
+        return
+    
+    # Check for multiple instances on the same machine
+    lock_file = open('bot.lock', 'w')
+    try:
+        fcntl.lockf(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except IOError:
+        print("❌ Error: Another instance of the bot is already running on this machine.")
         return
     
     bot = ModerationBot()
