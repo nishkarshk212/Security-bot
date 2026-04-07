@@ -677,29 +677,29 @@ class ModerationBot:
             # Row 1: Voice & Contacts
             [
                 InlineKeyboardButton(
-                    f"{'✅' if settings.get('block_voice', False) else '❌'} 🎤 Voice",
+                    f"🎤 Voice: {'✅ Enabled' if settings.get('block_voice', False) else '❌ Disabled'}",
                     callback_data="toggle_block_voice"
                 ),
                 InlineKeyboardButton(
-                    f"{'✅' if settings.get('block_contacts', False) else '❌'} 👤 Contacts",
+                    f"👤 Contacts: {'✅ Enabled' if settings.get('block_contacts', False) else '❌ Disabled'}",
                     callback_data="toggle_block_contacts"
                 ),
             ],
             # Row 2: Location & Video Notes
             [
                 InlineKeyboardButton(
-                    f"{'✅' if settings.get('block_location', False) else '❌'} 📍 Location",
+                    f"📍 Location: {'✅ Enabled' if settings.get('block_location', False) else '❌ Disabled'}",
                     callback_data="toggle_block_location"
                 ),
                 InlineKeyboardButton(
-                    f"{'✅' if settings.get('block_video_notes', False) else '❌'} 📹 Video Voice",
+                    f"📹 Video Voice: {'✅ Enabled' if settings.get('block_video_notes', False) else '❌ Disabled'}",
                     callback_data="toggle_block_video_notes"
                 ),
             ],
             # Row 3: Documents
             [
                 InlineKeyboardButton(
-                    f"{'✅' if settings.get('block_documents', False) else '❌'} 📄 Documents",
+                    f"📄 Documents: {'✅ Enabled' if settings.get('block_documents', False) else '❌ Disabled'}",
                     callback_data="toggle_block_documents"
                 ),
             ],
