@@ -298,6 +298,7 @@ class ModerationBot:
         self.app.add_handler(CommandHandler("unfree", self.cmd_unapprove))
         self.app.add_handler(CommandHandler("unfreeall", self.cmd_unapproveall))
         self.app.add_handler(CommandHandler("freed", self.cmd_approved))
+        self.app.add_handler(CommandHandler("reload", self.cmd_reload))
         self.app.add_handler(CommandHandler("ping", self.cmd_ping))
         
         # Maintenance commands (owner only)
@@ -759,10 +760,73 @@ class ModerationBot:
             return
         
         # Handle close approval settings
-        if data == "close_approval":
+        if data == "close_approval" or data == "close_reload":
             await query.message.delete()
             return
-        
+            
+        # Handle view freed users from reload command
+        if data == "view_freed_users":
+            async with aiosqlite.connect(self.db.db_file) as db:
+                cursor = await db.execute(
+                    'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
+                    (chat_id,)
+                )
+                rows = await cursor.fetchall()
+            
+            if not rows:
+                await query.answer("No freed members found.", show_alert=True)
+                return
+                
+            text = f"👥 <b>Freed Members & Permissions ({len(rows)}):</b>\n\n"
+            for i, row in enumerate(rows[:20], 1):  # Limit to 20 for message length
+                uid, name, uname, s, m, f, l, c, ps, cp = row
+                user_text = f"@{uname}" if uname else name
+                
+                # Format permissions
+                perms = []
+                if s: perms.append("🚫")
+                if m: perms.append("📸")
+                if f: perms.append("↗️")
+                if l: perms.append("🔗")
+                if c: perms.append("⌨️")
+                if ps: perms.append("⭐")
+                if cp: perms.append("📢")
+                
+                perms_str = " ".join(perms) if perms else "None"
+                text += f"{i}. {user_text} (<code>{uid}</code>)\n   └ {perms_str}\n\n"
+            
+            if len(rows) > 20:
+                text += f"<i>... and {len(rows) - 20} more.</i>"
+            
+            try:
+                await query.message.edit_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="refresh_reload")]]),
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                logger.error(f"Error viewing freed users: {e}")
+            return
+
+        # Handle reload refresh
+        if data == "refresh_reload":
+            # Reuse logic from cmd_reload
+            freed_count = await self.db.get_approved_users_count(chat_id)
+            keyboard = [
+                [InlineKeyboardButton(f"👥 Freed Members: {freed_count}", callback_data="view_freed_users")],
+                [InlineKeyboardButton("❌ Close", callback_data="close_reload")]
+            ]
+            text = style_text(
+                "🔄 **Bot Refreshed Successfully!**\n\n"
+                "Group settings have been reloaded and moderation is active.\n"
+                f"Current freed members: {freed_count}"
+            )
+            try:
+                await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+            except:
+                pass
+            return
+
         # Handle refresh
         if data == "refresh_settings":
             settings = await self.db.get_settings(chat_id)
@@ -1099,6 +1163,63 @@ class ModerationBot:
         )
 
     
+    async def cmd_reload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /reload command - Refresh settings and show freed users button"""
+        chat = update.effective_chat
+        user = update.effective_user
+        
+        if not chat or chat.type not in ['group', 'supergroup']:
+            await self.send_auto_delete_message(
+                update.message,
+                style_text("This command can only be used in groups."),
+                delete_after=60,
+                parse_mode='HTML'
+            )
+            return
+            
+        # Check if user is admin
+        is_admin = await self._is_admin(update, context)
+        if not is_admin:
+            await self.send_auto_delete_message(
+                update.message,
+                style_text("❌ Only group admins can reload bot settings."),
+                delete_after=60,
+                parse_mode='HTML'
+            )
+            return
+            
+        # Refresh settings in DB (initializes if missing)
+        await self.db.initialize_settings(chat.id)
+        settings = await self.db.get_settings(chat.id)
+        
+        # Get count of freed users
+        freed_count = await self.db.get_approved_users_count(chat.id)
+        
+        # Create keyboard with freed users button
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    f"👥 Freed Members: {freed_count}",
+                    callback_data="view_freed_users"
+                )
+            ],
+            [
+                InlineKeyboardButton("❌ Close", callback_data="close_reload")
+            ]
+        ]
+        
+        text = style_text(
+            "🔄 **Bot Refreshed Successfully!**\n\n"
+            "Group settings have been reloaded and moderation is active.\n"
+            f"Current freed members: {freed_count}"
+        )
+        
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+
     async def cmd_approved(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /freed command - Show list of freed members"""
         chat = update.effective_chat
