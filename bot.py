@@ -1890,13 +1890,15 @@ class ModerationBot:
                 # This is from a channel - BLOCK IT
                 print(f"📢 Blocking channel message from: {message.sender_chat.title} (ID: {message.sender_chat.id})")
                 try:
-                    await message.delete()
+                    # Send warning FIRST
                     await self.send_auto_delete_message(
                         message,
                         f"📢 Channel posts are not allowed in this group.",
                         delete_after=60,
                         parse_mode='HTML'
                     )
+                    # Then delete
+                    await message.delete()
                     print(f"✅ Channel message deleted successfully")
                 except Exception as e:
                     print(f"❌ Error deleting channel message: {e}")
@@ -1940,13 +1942,15 @@ class ModerationBot:
         # Action 
         if is_blocked: 
             try: 
-                await message.delete() 
+                # Send warning FIRST
                 await self.send_auto_delete_message(
                     message,
                     f"🚫 Stickers are not allowed in this group.",
                     delete_after=60,
                     parse_mode='HTML'
                 )
+                # Then delete
+                await message.delete() 
             except Exception as e: 
                 logger.error(f"Failed to delete sticker: {e}")
             return
@@ -2066,14 +2070,16 @@ class ModerationBot:
         
         if is_media_blocked:
             try:
-                await message.delete()
-                logger.info(f"✅ Deleted {media_feature_name} message from user {user.id} in {chat.id}")
+                # Send warning FIRST before deleting
                 await self.send_auto_delete_message(
                     message,
                     f"🚫 {media_feature_name} are not allowed in this group.",
                     delete_after=60,
                     parse_mode='HTML'
                 )
+                # Then delete the message
+                await message.delete()
+                logger.info(f"✅ Deleted {media_feature_name} message from user {user.id} in {chat.id}")
             except Exception as e:
                 logger.error(f"❌ Failed to delete {media_feature_name} message: {e}")
                 print(f"❌ Error deleting {media_feature_name}: {e}")
@@ -2119,14 +2125,16 @@ class ModerationBot:
                     return  # User is exempt
                 
                 try:
-                    await message.delete()
-                    logger.info(f"✅ Deleted {media_type} message from user {user.id if user else 'unknown'} in {chat.id}")
+                    # Send warning FIRST before deleting
                     await self.send_auto_delete_message(
                         message,
                         f"📁 {media_type} are not allowed in this group.",
                         delete_after=60,
                         parse_mode='HTML'
                     )
+                    # Then delete the media message
+                    await message.delete()
+                    logger.info(f"✅ Deleted {media_type} message from user {user.id if user else 'unknown'} in {chat.id}")
                 except Exception as e:
                     logger.error(f"❌ Failed to delete {media_type} message: {e}")
                     print(f"❌ Error deleting {media_type}: {e}")
@@ -2150,13 +2158,15 @@ class ModerationBot:
             if exemptions and exemptions['exempt_forwards']:
                 return  # User is exempt
             try:
-                await message.delete()
+                # Send warning FIRST
                 await self.send_auto_delete_message(
                     message,
                     f"↗️ Forwarded messages are not allowed in this group.",
                     delete_after=60,
                     parse_mode='HTML'
                 )
+                # Then delete
+                await message.delete()
             except Exception as e:
                 logger.error(f"❌ Failed to delete forwarded message: {e}")
             return
@@ -2181,14 +2191,16 @@ class ModerationBot:
                         return  # User is exempt
                     
                     try:
-                        await message.delete()
-                        logger.info(f"✅ Deleted link message from user {user.id if user else 'unknown'} in {chat.id}")
+                        # Send warning FIRST
                         await self.send_auto_delete_message(
                             message,
                             f"🔗 Links are not allowed in this group.",
                             delete_after=60,
                             parse_mode='HTML'
                         )
+                        # Then delete
+                        await message.delete()
+                        logger.info(f"✅ Deleted link message from user {user.id if user else 'unknown'} in {chat.id}")
                     except Exception as e:
                         logger.error(f"❌ Failed to delete link message: {e}")
                     return
