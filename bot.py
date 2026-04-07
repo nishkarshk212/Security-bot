@@ -441,7 +441,10 @@ class ModerationBot:
             )
             
             keyboard = [
-                [InlineKeyboardButton("ʜᴇʟᴘ 🥀", callback_data="help_button")]
+                [
+                    InlineKeyboardButton("sᴇᴛᴛɪɴɢs ⚙️", callback_data="open_settings"),
+                    InlineKeyboardButton("ʜᴇʟᴘ 🥀", callback_data="help_button")
+                ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -468,6 +471,7 @@ class ModerationBot:
                     )
                 ],
                 [
+                    InlineKeyboardButton("ɢʀᴏᴜᴘ sᴇᴛᴛɪɴɢ 🥀", url=f"https://t.me/{bot_username}?startgroup=true"),
                     InlineKeyboardButton("ʜᴇʟᴘ 🥀", callback_data="help_button")
                 ]
             ]
@@ -537,7 +541,27 @@ class ModerationBot:
         """Handle /settings command - Show settings panel"""
         chat = update.effective_chat
         user = update.effective_user
+        bot_username = context.bot.username
         
+        # Handle private chat
+        if chat.type == 'private':
+            text = style_text(
+                f"๏ ᴛʜɪs ɪs {context.bot.first_name}\n\n"
+                "➻ ᴛᴏ ᴄᴏɴғɪɢᴜʀᴇ ɢʀᴏᴜᴘ sᴇᴛᴛɪɴɢs, ᴘʟᴇᴀsᴇ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴀɴᴅ ᴜsᴇ ᴛʜᴇ /sᴇᴛᴛɪɴɢs ᴄᴏᴍᴍᴀɴᴅ ᴛʜᴇʀᴇ.\n"
+                "ʏᴏᴜ ᴄᴀɴ ᴀʟsᴏ ᴛᴀᴘ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴀᴅᴅ ᴍᴇ ᴛᴏ ᴀ ɴᴇᴡ ɢʀᴏᴜᴘ.🥂"
+            )
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        "ɢʀᴏᴜᴘ sᴇᴛᴛɪɴɢ 🥀",
+                        url=f"https://t.me/{bot_username}?startgroup=true"
+                    )
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='HTML')
+            return
+            
         # Check if user has required admin permissions
         if chat.type in ['group', 'supergroup']:
             user_id = user.id if user else None
@@ -779,6 +803,32 @@ class ModerationBot:
             await query.message.delete()
             return
         
+        # Handle open settings from start message
+        if data == "open_settings":
+            # Just call cmd_settings logic but as a callback
+            # We need to check permissions here too
+            user_id = query.from_user.id
+            can_configure = await self.can_user_configure_settings(chat_id, user_id, context)
+            if not can_configure:
+                await query.answer(
+                    style_text("❌ You need ban users and change group info permissions to access settings."),
+                    show_alert=True
+                )
+                return
+            
+            settings = await self.db.get_settings(chat_id)
+            keyboard = self._create_settings_keyboard(settings)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            settings_text = self._format_settings_text(settings)
+            
+            await query.message.reply_text(
+                settings_text,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+            await query.answer()
+            return
+            
         # Handle help button from start message
         if data == "help_button":
             help_text = style_text(
