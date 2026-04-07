@@ -70,6 +70,7 @@ class DatabaseManager:
                     block_commands BOOLEAN DEFAULT 0,
                     block_premium_stickers BOOLEAN DEFAULT 0,
                     block_channel_posts BOOLEAN DEFAULT 0,
+                    block_pinned_messages BOOLEAN DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -90,12 +91,23 @@ class DatabaseManager:
                     exempt_commands BOOLEAN DEFAULT 0,
                     exempt_premium_stickers BOOLEAN DEFAULT 1,
                     exempt_channel_posts BOOLEAN DEFAULT 0,
+                    exempt_pinned_messages BOOLEAN DEFAULT 0,
                     approved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(chat_id, user_id)
                 )
             ''')
             
             # Migration: Add columns if they don't exist
+            try:
+                await db.execute('ALTER TABLE group_settings ADD COLUMN block_pinned_messages BOOLEAN DEFAULT 0')
+            except:
+                pass
+
+            try:
+                await db.execute('ALTER TABLE approved_users ADD COLUMN exempt_pinned_messages BOOLEAN DEFAULT 0')
+            except:
+                pass
+
             try:
                 await db.execute('ALTER TABLE approved_users ADD COLUMN exempt_premium_stickers BOOLEAN DEFAULT 1')
             except:
@@ -127,6 +139,7 @@ class DatabaseManager:
                     'block_commands': bool(row[5]),
                     'block_premium_stickers': bool(row[6]),
                     'block_channel_posts': bool(row[7]),
+                    'block_pinned_messages': bool(row[8]) if len(row) > 8 else False,
                 }
             else:
                 # Create default settings
@@ -158,22 +171,22 @@ class DatabaseManager:
             await db.execute(
                 '''INSERT OR REPLACE INTO approved_users 
                    (chat_id, user_id, username, first_name, approved_by, 
-                    exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, approved_at) 
-                   VALUES (?, ?, ?, ?, ?, 1, 1, 0, 0, 0, 1, 0, CURRENT_TIMESTAMP)''',
+                    exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, approved_at) 
+                   VALUES (?, ?, ?, ?, ?, 1, 1, 0, 0, 0, 1, 0, 0, CURRENT_TIMESTAMP)''',
                 (chat_id, user_id, username, first_name, approved_by)
             )
             await db.commit()
     
-    async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts):
+    async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages):
         """Update user's exemption settings"""
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
                 '''UPDATE approved_users 
                    SET exempt_stickers = ?, exempt_media = ?, 
                        exempt_forwards = ?, exempt_links = ?, exempt_commands = ?,
-                       exempt_premium_stickers = ?, exempt_channel_posts = ?
+                       exempt_premium_stickers = ?, exempt_channel_posts = ?, exempt_pinned_messages = ?
                    WHERE chat_id = ? AND user_id = ?''',
-                (exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, chat_id, user_id)
+                (exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, chat_id, user_id)
             )
             await db.commit()
     
@@ -181,7 +194,7 @@ class DatabaseManager:
         """Get user's exemption settings"""
         async with aiosqlite.connect(self.db_file) as db:
             cursor = await db.execute(
-                'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts FROM approved_users WHERE chat_id = ? AND user_id = ?',
+                'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages FROM approved_users WHERE chat_id = ? AND user_id = ?',
                 (chat_id, user_id)
             )
             row = await cursor.fetchone()
@@ -194,6 +207,7 @@ class DatabaseManager:
                     'exempt_commands': bool(row[4]),
                     'exempt_premium_stickers': bool(row[5]),
                     'exempt_channel_posts': bool(row[6]),
+                    'exempt_pinned_messages': bool(row[7]) if len(row) > 7 else False,
                 }
             return None
     
@@ -564,11 +578,15 @@ class ModerationBot:
                     callback_data="toggle_block_premium_stickers"
                 ),
             ],
-            # Row 4: Channel Posts
+            # Row 4: Channel Posts & Pinned Messages
             [
                 InlineKeyboardButton(
                     f"{'✅' if settings['block_channel_posts'] else '❌'} 📢 Channel Posts",
                     callback_data="toggle_block_channel_posts"
+                ),
+                InlineKeyboardButton(
+                    f"{'✅' if settings.get('block_pinned_messages', False) else '❌'} 📌 Pinned Messages",
+                    callback_data="toggle_block_pinned_messages"
                 ),
             ],
             # Row 5: Action Buttons
@@ -617,6 +635,10 @@ class ModerationBot:
                     f"{'✅' if exemptions['exempt_channel_posts'] else '❌'} 📢 Channel Posts",
                     callback_data=f"exempt_channel_posts_{user_id}"
                 ),
+                InlineKeyboardButton(
+                    f"{'✅' if exemptions.get('exempt_pinned_messages', False) else '❌'} 📌 Pinned Messages",
+                    callback_data=f"exempt_pinned_messages_{user_id}"
+                ),
             ],
             [
                 InlineKeyboardButton(
@@ -639,7 +661,8 @@ class ModerationBot:
             f"🔗 Block Links: {status_emoji(settings['block_links'])}\n"
             f"⌨️ Block Commands: {status_emoji(settings['block_commands'])}\n"
             f"⭐ Block Premium Stickers: {status_emoji(settings['block_premium_stickers'])}\n"
-            f"📢 Block Channel Posts: {status_emoji(settings['block_channel_posts'])}\n\n"
+            f"📢 Block Channel Posts: {status_emoji(settings['block_channel_posts'])}\n"
+            f"📌 Block Pinned Messages: {status_emoji(settings.get('block_pinned_messages', False))}\n\n"
             "Tap buttons above to toggle features.\n"
             "Use /free to exempt members from restrictions."
         )
@@ -719,6 +742,9 @@ class ModerationBot:
             elif data.startswith("exempt_channel_posts_"):
                 exemption_type = "channel_posts"
                 target_user_id = int(data.replace("exempt_channel_posts_", ""))
+            elif data.startswith("exempt_pinned_messages_"):
+                exemption_type = "pinned_messages"
+                target_user_id = int(data.replace("exempt_pinned_messages_", ""))
             else:
                 parts = data.split("_")
                 exemption_type = parts[1]
@@ -731,7 +757,7 @@ class ModerationBot:
                 return
             
             # Toggle the specific exemption
-            new_value = not exemptions[f'exempt_{exemption_type}']
+            new_value = not exemptions.get(f'exempt_{exemption_type}', False)
             exemptions[f'exempt_{exemption_type}'] = new_value
             
             # Update database
@@ -744,7 +770,8 @@ class ModerationBot:
                 exemptions['exempt_links'],
                 exemptions['exempt_commands'],
                 exemptions['exempt_premium_stickers'],
-                exemptions['exempt_channel_posts']
+                exemptions['exempt_channel_posts'],
+                exemptions.get('exempt_pinned_messages', False)
             )
             
             # Update keyboard
@@ -792,6 +819,7 @@ class ModerationBot:
                 if c: perms.append("⌨️ Commands")
                 if ps: perms.append("⭐ Premium")
                 if cp: perms.append("📢 Channel")
+                if row[9] if len(row) > 9 else False: perms.append("📌 Pinned")
                 
                 perms_str = ", ".join(perms) if perms else "None"
                 text += f"{i}. {user_text} (<code>{uid}</code>)\n   └ {perms_str}\n\n"
@@ -891,6 +919,7 @@ class ModerationBot:
                 'block_commands': 'Command Blocking',
                 'block_premium_stickers': 'Premium Sticker Blocking',
                 'block_channel_posts': 'Channel Post Blocking',
+                'block_pinned_messages': 'Pinned Message Blocking',
             }
             
             feature_name = feature_names.get(setting_name, setting_name)
@@ -1065,9 +1094,6 @@ class ModerationBot:
             )
             return
         
-        # Check if already approved
-        is_approved = await self.db.is_user_approved(chat.id, target_user.id)
-        
         # Don't allow approving the anonymous bot or other system bots
         if target_user.id in [1087968824, 777000]:
             await self.send_auto_delete_message(
@@ -1078,24 +1104,11 @@ class ModerationBot:
             )
             return
             
-        # Get exemptions
-        exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
-        if not exemptions:
-            # Default exemptions if not in DB yet
-            exemptions = {
-                'exempt_stickers': True,
-                'exempt_media': True,
-                'exempt_forwards': False,
-                'exempt_links': False,
-                'exempt_commands': False,
-                'exempt_premium_stickers': True,
-                'exempt_channel_posts': False
-            }
-        
-        # Send approval message with 6-button grid
-        keyboard = self._create_approval_keyboard(exemptions, target_user.id)
+        # Check if already approved
+        is_approved = await self.db.is_user_approved(chat.id, target_user.id)
         
         if is_approved:
+            exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
             approval_text = (
                 f"✅ <b>{target_user.mention_html()} is already freed!</b>\n\n"
                 f"Current exemption settings:\n\n"
@@ -1110,11 +1123,16 @@ class ModerationBot:
                 target_user.first_name or "",
                 approved_by_id
             )
+            # Fetch the newly created exemptions
+            exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
             approval_text = (
                 f"✅ <b>Member Freed!</b>\n\n"
                 f"{target_user.mention_html()} can now configure exemptions:\n\n"
                 f"<i>Tap buttons below to toggle exemptions</i>"
             )
+        
+        # Send approval message with 8-button grid
+        keyboard = self._create_approval_keyboard(exemptions, target_user.id)
         
         await update.message.reply_text(
             approval_text,
@@ -1286,6 +1304,7 @@ class ModerationBot:
                 if c: perms.append("⌨️ Commands")
                 if ps: perms.append("⭐ Premium")
                 if cp: perms.append("📢 Channel")
+                if row[10] if len(row) > 10 else False: perms.append("📌 Pinned")
                 
                 perms_str = ", ".join(perms) if perms else "None"
                 text += f"{i}. {user_text} (<code>{user_id}</code>)\n   └ {perms_str}\n\n"
@@ -1638,6 +1657,19 @@ class ModerationBot:
                     pass
                 return
         
+        # Check pinned message service message blocking
+        if settings.get('block_pinned_messages', False) and message.pinned_message:
+            # Check if user is approved for pinned messages
+            if exemptions and exemptions.get('exempt_pinned_messages', False):
+                return  # User is exempt
+            
+            print(f"📌 Blocking pinned message notification in: {chat.title}")
+            try:
+                await message.delete()
+            except Exception as e:
+                print(f"❌ Error deleting pinned service message: {e}")
+            return
+
         # Check forward blocking (skip for users with exemption)
         if settings['block_forwards'] and (message.forward_date or message.forward_origin):
             if exemptions and exemptions['exempt_forwards']:
