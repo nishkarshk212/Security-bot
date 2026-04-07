@@ -25,6 +25,7 @@ import aiosqlite
 from font import Fonts
 from config import START_IMG_URL
 from maintenance import maintenance_manager, OWNER_ID, LOG_CHANNEL_ID
+from link_detector import LinkDetector
 import sys
 
 # Load environment variables
@@ -2121,58 +2122,64 @@ class ModerationBot:
         # This handles photos, videos, audio, animations
         # Voice, video_note, documents, contacts, location have their own separate settings
         
-        # Check photo blocking
-        if message.photo and settings.get('block_photos', False):
-            if exemptions and exemptions.get('exempt_photos', True):
-                logger.info(f"✅ User {user.id} exempt from photo blocking")
-            else:
-                try:
-                    await message.delete()
-                    logger.info(f"✅ Deleted photo message from user {user.id if user else 'unknown'} in {chat.id}")
-                    await self.send_auto_delete_message(
-                        message,
-                        f"📸 Photos are not allowed in this group.",
-                        delete_after=60,
-                        parse_mode='HTML'
-                    )
-                except Exception as e:
-                    logger.error(f"❌ Failed to delete photo message: {e}")
-                    print(f"❌ Error deleting photo: {e}")
-                return
+        # Check photo blocking - handles single photos and photo albums
+        if message.photo:
+            logger.info(f"📸 Photo detected from user {user.id if user else 'unknown'} in {chat.id}")
+            if settings.get('block_photos', False):
+                if exemptions and exemptions.get('exempt_photos', True):
+                    logger.info(f"✅ User {user.id} exempt from photo blocking")
+                else:
+                    try:
+                        await message.delete()
+                        logger.info(f"✅ Deleted photo message from user {user.id if user else 'unknown'} in {chat.id}")
+                        await self.send_auto_delete_message(
+                            message,
+                            f"📸 Photos are not allowed in this group.",
+                            delete_after=60,
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Failed to delete photo message: {e}")
+                        print(f"❌ Error deleting photo: {e}")
+                    return
         
-        # Check video blocking
-        if message.video and settings.get('block_videos', False):
-            if exemptions and exemptions.get('exempt_videos', True):
-                logger.info(f"✅ User {user.id} exempt from video blocking")
-            else:
-                try:
-                    await message.delete()
-                    logger.info(f"✅ Deleted video message from user {user.id if user else 'unknown'} in {chat.id}")
-                    await self.send_auto_delete_message(
-                        message,
-                        f"🎥 Videos are not allowed in this group.",
-                        delete_after=60,
-                        parse_mode='HTML'
-                    )
-                except Exception as e:
-                    logger.error(f"❌ Failed to delete video message: {e}")
-                    print(f"❌ Error deleting video: {e}")
-                return
+        # Check video blocking - handles videos with/without captions
+        if message.video:
+            logger.info(f"🎥 Video detected from user {user.id if user else 'unknown'} in {chat.id}")
+            if settings.get('block_videos', False):
+                if exemptions and exemptions.get('exempt_videos', True):
+                    logger.info(f"✅ User {user.id} exempt from video blocking")
+                else:
+                    try:
+                        await message.delete()
+                        logger.info(f"✅ Deleted video message from user {user.id if user else 'unknown'} in {chat.id}")
+                        await self.send_auto_delete_message(
+                            message,
+                            f"🎥 Videos are not allowed in this group.",
+                            delete_after=60,
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Failed to delete video message: {e}")
+                        print(f"❌ Error deleting video: {e}")
+                    return
         
         # Check general media blocking (audio, animation, and other media)
         if settings['block_media']:
             has_media = False
             media_type = "Media"
             
-            # Debug logging for all media types
+            # Check for audio files
             if message.audio:
-                logger.info(f"🎵 Audio detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
+                logger.info(f"🎵 Audio detected from user {user.id if user else 'unknown'} in {chat.id}")
                 has_media = True
-                media_type = "Audio"
+                media_type = "Audio files"
+            
+            # Check for animations/GIFs
             if message.animation:
-                logger.info(f"🎬 Animation/GIF detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
+                logger.info(f"🎬 Animation/GIF detected from user {user.id if user else 'unknown'} in {chat.id}")
                 has_media = True
-                media_type = "GIFs"
+                media_type = "GIFs/Animations"
             
             # Check if user has media exemption
             if has_media:
@@ -2225,35 +2232,25 @@ class ModerationBot:
         
         # Check link blocking (skip for users with exemption)
         if settings['block_links']:
-            has_link = False
             text_to_check = message.text or message.caption or ""
-            
-            # Check for URL entities in text/caption
             entities_to_check = list(message.entities or []) + list(message.caption_entities or [])
-            for entity in entities_to_check:
-                if entity.type == 'url':
-                    has_link = True
-                    logger.info(f"🔗 Link detected (url entity) from user {user.id if user else 'unknown'}: {text_to_check[entity.offset:entity.offset + entity.length]}")
-                    break
-                elif entity.type == 'text_link' and entity.url:
-                    has_link = True
-                    logger.info(f"🔗 Link detected (text_link entity) from user {user.id if user else 'unknown'}: {entity.url}")
-                    break
             
-            # Also check with regex as fallback
-            if not has_link and text_to_check:
-                url_pattern = r'(https?://[^\s]+)|(www\.[^\s]+)|(t\.me/[^\s]+)'
-                if re.search(url_pattern, text_to_check):
-                    has_link = True
-                    logger.info(f"🔗 Link detected (regex pattern) from user {user.id if user else 'unknown'}")
+            # Use advanced link detector
+            has_link, urls_found = LinkDetector.detect_links(text_to_check, entities_to_check)
             
             if has_link:
+                # Log detected links
+                for url in urls_found:
+                    link_type = LinkDetector.get_link_type(url)
+                    logger.info(f"🔗 Link detected ({link_type}) from user {user.id if user else 'unknown'}: {url}")
+                
                 if exemptions and exemptions.get('exempt_links', False):
                     logger.info(f"✅ User {user.id} exempt from link blocking")
                     return  # User is exempt
+                
                 try:
                     await message.delete()
-                    logger.info(f"✅ Deleted link message from user {user.id if user else 'unknown'} in {chat.id}")
+                    logger.info(f"✅ Deleted link message from user {user.id if user else 'unknown'} in {chat.id} ({len(urls_found)} links)")
                     await self.send_auto_delete_message(
                         message,
                         f"🔗 Links are not allowed in this group.",
