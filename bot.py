@@ -2029,11 +2029,35 @@ class ModerationBot:
                 media_feature_name = "Polls"
                 logger.info(f"🚫 Poll blocking triggered for user {user.id}")
         
-        elif message.web_app and settings.get('block_embed_link', False):
-            if not (exemptions and exemptions.get('exempt_embed_link', False)):
-                is_media_blocked = True
-                media_feature_name = "Embed Links"
-                logger.info(f"🚫 Embed link blocking triggered for user {user.id}")
+        # Embed link blocking - check for web apps and link previews
+        if settings.get('block_embed_link', False) and not is_media_blocked:
+            # Check for web apps
+            if message.web_app:
+                if not (exemptions and exemptions.get('exempt_embed_link', False)):
+                    is_media_blocked = True
+                    media_feature_name = "Embed Links"
+                    logger.info(f"🚫 Embed link (web_app) blocking triggered for user {user.id}")
+            # Check for messages with external link previews
+            elif message.text and message.entities:
+                for entity in message.entities:
+                    if entity.type == 'url':
+                        # Extract the URL
+                        url = message.text[entity.offset:entity.offset + entity.length]
+                        # Check if it's an external link (not t.me or telegram.me)
+                        if not any(domain in url.lower() for domain in ['t.me/', 'telegram.me/', 'telegram.dog/']):
+                            if not (exemptions and exemptions.get('exempt_embed_link', False)):
+                                is_media_blocked = True
+                                media_feature_name = "Embed Links"
+                                logger.info(f"🚫 Embed link (URL preview) blocking triggered for user {user.id}: {url}")
+                                break
+                    elif entity.type == 'text_link' and entity.url:
+                        # Check if it's an external link
+                        if not any(domain in entity.url.lower() for domain in ['t.me/', 'telegram.me/', 'telegram.dog/']):
+                            if not (exemptions and exemptions.get('exempt_embed_link', False)):
+                                is_media_blocked = True
+                                media_feature_name = "Embed Links"
+                                logger.info(f"🚫 Embed link (text_link) blocking triggered for user {user.id}: {entity.url}")
+                                break
         
         if is_media_blocked:
             try:
