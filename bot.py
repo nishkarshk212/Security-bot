@@ -1740,12 +1740,8 @@ class ModerationBot:
                 logger.info(f"Custom emoji entity type detected in {chat.title} ({chat.id})")
                 break
 
-        # Check command blocking (skip for users with exemption)
-        # We check this EARLY before admin checks so that we can block regular user commands
-        # but we need to ensure admins can still use commands.
-        if settings['block_commands'] and message.text:
-            # Detect commands starting with / or !
-            # Also check message.entities for 'bot_command' type
+        # Auto-delete commands with a short delay, and optionally warn if blocked
+        if message.text:
             is_command = False
             if message.text.strip().startswith(('/', '!')):
                 is_command = True
@@ -1754,31 +1750,24 @@ class ModerationBot:
                     if entity.type == 'bot_command':
                         is_command = True
                         break
-            
             if is_command:
-                # Now check if the user is an admin or exempt
-                is_admin = await self._is_admin(update, context)
-                
-                if not is_admin:
-                    # Check if user is approved and get exemptions
-                    is_approved = False
-                    exemptions = None
-                    if user:
-                        is_approved = await self.db.is_user_approved(chat.id, user.id)
-                        exemptions = await self.db.get_user_exemptions(chat.id, user.id) if is_approved else None
-                    
-                    if not (exemptions and exemptions.get('exempt_commands', False)):
-                        try:
-                            await message.delete()
+                asyncio.create_task(self._delete_message_later(message, 2))
+                if settings['block_commands']:
+                    is_admin = await self._is_admin(update, context)
+                    if not is_admin:
+                        is_approved = False
+                        exemptions = None
+                        if user:
+                            is_approved = await self.db.is_user_approved(chat.id, user.id)
+                            exemptions = await self.db.get_user_exemptions(chat.id, user.id) if is_approved else None
+                        if not (exemptions and exemptions.get('exempt_commands', False)):
                             await self.send_auto_delete_message(
                                 message,
                                 f"⌨️ Commands are not allowed in this group.",
                                 delete_after=60,
                                 parse_mode='HTML'
                             )
-                        except:
-                            pass
-                        return
+                return
 
         # Check if user is admin or approved (bypass restrictions)
         is_admin = await self._is_admin(update, context)
