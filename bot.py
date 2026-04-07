@@ -430,7 +430,6 @@ class ModerationBot:
             
             keyboard = [
                 [
-                    InlineKeyboardButton("sᴇᴛᴛɪɴɢs ⚙️", callback_data="open_settings"),
                     InlineKeyboardButton("ʜᴇʟᴘ 🥀", callback_data="help_button")
                 ]
             ]
@@ -459,7 +458,6 @@ class ModerationBot:
                     )
                 ],
                 [
-                    InlineKeyboardButton("ɢʀᴏᴜᴘ sᴇᴛᴛɪɴɢ 🥀", url=f"https://t.me/{bot_username}?startgroup=true"),
                     InlineKeyboardButton("ʜᴇʟᴘ 🥀", callback_data="help_button")
                 ]
             ]
@@ -491,7 +489,7 @@ class ModerationBot:
             "⭐ Premium Sticker Blocking\n"
             "Block premium animated stickers from Telegram Premium\n\n"
             "📸 Media Blocking\n"
-            "Block photos, videos, documents, audio, voice messages\n\n"
+            "Block photos, videos, documents, audio\n\n"
             "↗️ Forward Blocking\n"
             "Prevent users from forwarding messages from other chats\n\n"
             "🔗 Link Blocking\n"
@@ -500,14 +498,10 @@ class ModerationBot:
             "Block messages starting with / or ! (custom commands)\n\n"
             "📢 Channel Post Blocking\n"
             "Block messages sent from channels (anonymous channel posts)\n\n"
-            "🎤 Voice Blocking\n"
-            "Block voice messages in the group\n\n"
             "👤 Contact Blocking\n"
             "Block sharing of contact information\n\n"
             "📍 Location Blocking\n"
             "Block sending of location or venues\n\n"
-            "📹 Video Voice Blocking\n"
-            "Block video notes (video voice messages)\n\n"
             "📄 Document Blocking\n"
             "Block document and file uploads\n\n"
             "✅ Member Approval System\n"
@@ -844,7 +838,7 @@ class ModerationBot:
                 "⭐ Premium Sticker Blocking\n"
                 "Block premium animated stickers from Telegram Premium\n\n"
                 "📸 Media Blocking\n"
-                "Block photos, videos, documents, audio, voice messages\n\n"
+                "Block photos, videos, documents, audio\n\n"
                 "↗️ Forward Blocking\n"
                 "Prevent users from forwarding messages from other chats\n\n"
                 "🔗 Link Blocking\n"
@@ -1887,15 +1881,24 @@ class ModerationBot:
         is_media_blocked = False
         media_feature_name = ""
         
+        # Debug logging for contact and location
+        if message.contact:
+            logger.info(f"📱 Contact detected from user {user.id if user else 'unknown'} in {chat.id} - block_contacts setting: {settings.get('block_contacts', False)}")
+        
+        if message.location or message.venue:
+            logger.info(f"📍 Location detected from user {user.id if user else 'unknown'} in {chat.id} - block_location setting: {settings.get('block_location', False)}")
+        
         if message.contact and settings.get('block_contacts', False):
             if not (exemptions and exemptions.get('exempt_contacts', False)):
                 is_media_blocked = True
                 media_feature_name = "Contacts"
+                logger.info(f"🚫 Contact blocking triggered for user {user.id}")
         
         elif (message.location or message.venue) and settings.get('block_location', False):
             if not (exemptions and exemptions.get('exempt_location', False)):
                 is_media_blocked = True
                 media_feature_name = "Location"
+                logger.info(f"🚫 Location blocking triggered for user {user.id}")
         
         elif message.document and settings.get('block_documents', False):
             if not (exemptions and exemptions.get('exempt_documents', False)):
@@ -1905,14 +1908,16 @@ class ModerationBot:
         if is_media_blocked:
             try:
                 await message.delete()
+                logger.info(f"✅ Deleted {media_feature_name} message from user {user.id} in {chat.id}")
                 await self.send_auto_delete_message(
                     message,
                     f"🚫 {media_feature_name} are not allowed in this group.",
                     delete_after=60,
                     parse_mode='HTML'
                 )
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"❌ Failed to delete {media_feature_name} message: {e}")
+                print(f"❌ Error deleting {media_feature_name}: {e}")
             return
 
         # Check general media blocking (skip for users with exemption)
