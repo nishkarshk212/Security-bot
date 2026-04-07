@@ -812,20 +812,28 @@ class ModerationBot:
         # Handle reload refresh
         if data == "refresh_reload":
             # Reuse logic from cmd_reload
-            freed_count = await self.db.get_approved_users_count(chat_id)
-            keyboard = [
-                [InlineKeyboardButton(f"👥 Freed Members: {freed_count}", callback_data="view_freed_users")],
-                [InlineKeyboardButton("❌ Close", callback_data="close_reload")]
-            ]
-            text = style_text(
-                "🔄 **Bot Refreshed Successfully!**\n\n"
-                "Group settings have been reloaded and moderation is active.\n"
-                f"Current freed members: {freed_count}"
-            )
             try:
+                # Refresh and count administrators
+                admins = await context.bot.get_chat_administrators(chat_id)
+                admin_count = len(admins)
+                
+                freed_count = await self.db.get_approved_users_count(chat_id)
+                
+                keyboard = [
+                    [InlineKeyboardButton(f"👥 Freed Members: {freed_count}", callback_data="view_freed_users")],
+                    [InlineKeyboardButton("❌ Close", callback_data="close_reload")]
+                ]
+                
+                text = style_text(
+                    "🔄 **Bot Refreshed Successfully!**\n\n"
+                    "Group settings have been reloaded and moderation is active.\n"
+                    f"👤 Administrators Count: {admin_count}\n"
+                    f"👥 Current Freed Members: {freed_count}"
+                )
+                
                 await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Error in refresh_reload: {e}")
             return
 
         # Handle refresh
@@ -1178,22 +1186,62 @@ class ModerationBot:
             )
             return
             
-        # Check if user is admin
-        is_admin = await self._is_admin(update, context)
-        if not is_admin:
+        # Check if user is admin with Change Info and Ban permissions
+        user_id = user.id if user else None
+        can_configure = await self.can_user_configure_settings(chat.id, user_id, context)
+        if not can_configure:
             await self.send_auto_delete_message(
                 update.message,
-                style_text("❌ Only group admins can reload bot settings."),
+                style_text("❌ You need ban users and change group info permissions to reload bot settings."),
                 delete_after=60,
                 parse_mode='HTML'
             )
             return
             
-        await update.message.reply_text(style_text("🔄 Restarting bot to apply changes..."))
-        
-        # Perform a clean restart
-        python = sys.executable
-        os.execl(python, python, *sys.argv)
+        try:
+            # Refresh settings in DB (initializes if missing)
+            await self.db.initialize_settings(chat.id)
+            
+            # Refresh and count administrators
+            admins = await context.bot.get_chat_administrators(chat.id)
+            admin_count = len(admins)
+            
+            # Get count of freed users
+            freed_count = await self.db.get_approved_users_count(chat.id)
+            
+            # Create keyboard with freed users button
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        f"👥 Freed Members: {freed_count}",
+                        callback_data="view_freed_users"
+                    )
+                ],
+                [
+                    InlineKeyboardButton("❌ Close", callback_data="close_reload")
+                ]
+            ]
+            
+            text = style_text(
+                "🔄 **Bot Refreshed Successfully!**\n\n"
+                "Group settings have been reloaded and moderation is active.\n"
+                f"👤 Administrators Count: {admin_count}\n"
+                f"👥 Current Freed Members: {freed_count}"
+            )
+            
+            await update.message.reply_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"Error in reload command: {e}")
+            await self.send_auto_delete_message(
+                update.message,
+                style_text("❌ An error occurred while reloading settings."),
+                delete_after=60,
+                parse_mode='HTML'
+            )
 
     async def cmd_approved(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /freed command - Show list of freed members"""
