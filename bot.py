@@ -205,17 +205,17 @@ class DatabaseManager:
             )
             await db.commit()
     
-    async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_photos, exempt_videos, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link):
+    async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link):
         """Update user's exemption settings"""
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
                 '''UPDATE approved_users 
-                   SET exempt_stickers = ?, exempt_photos = ?, exempt_videos = ?, exempt_media = ?, 
+                   SET exempt_stickers = ?, exempt_media = ?, 
                        exempt_forwards = ?, exempt_links = ?, exempt_commands = ?,
                        exempt_premium_stickers = ?, exempt_channel_posts = ?, exempt_pinned_messages = ?,
                        exempt_contacts = ?, exempt_location = ?, exempt_documents = ?, exempt_voice = ?, exempt_video_note = ?, exempt_poll = ?, exempt_embed_link = ?
                    WHERE chat_id = ? AND user_id = ?''',
-                (exempt_stickers, exempt_photos, exempt_videos, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, chat_id, user_id)
+                (exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, chat_id, user_id)
             )
             await db.commit()
     
@@ -223,7 +223,7 @@ class DatabaseManager:
         """Get user's exemption settings"""
         async with aiosqlite.connect(self.db_file) as db:
             cursor = await db.execute(
-                'SELECT exempt_stickers, exempt_photos, exempt_videos, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link FROM approved_users WHERE chat_id = ? AND user_id = ?',
+                'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link FROM approved_users WHERE chat_id = ? AND user_id = ?',
                 (chat_id, user_id)
             )
             row = await cursor.fetchone()
@@ -231,11 +231,8 @@ class DatabaseManager:
             if row:
                 return {
                     'exempt_stickers': bool(row[0]),
-                    'exempt_photos': bool(row[1]),
-                    'exempt_videos': bool(row[2]),
                     'exempt_media': bool(row[3]),
                     'exempt_forwards': bool(row[4]),
-                    'exempt_links': bool(row[5]),
                     'exempt_commands': bool(row[6]),
                     'exempt_premium_stickers': bool(row[7]),
                     'exempt_channel_posts': bool(row[8]),
@@ -641,15 +638,13 @@ class ModerationBot:
                     callback_data="toggle_block_stickers"
                 ),
                 InlineKeyboardButton(
-                    f"{'✅' if settings.get('block_photos', False) else '❌'} 📸 Photos",
-                    callback_data="toggle_block_photos"
+                    f"{'✅' if settings.get(False) else '❌'} 📸 Photos",
                 ),
             ],
             # Row 2: Videos & Media
             [
                 InlineKeyboardButton(
-                    f"{'✅' if settings.get('block_videos', False) else '❌'} 🎥 Videos",
-                    callback_data="toggle_block_videos"
+                    f"{'✅' if settings.get(False) else '❌'} 🎥 Videos",
                 ),
                 InlineKeyboardButton(
                     f"{'✅' if settings['block_media'] else '❌'} 📁 Media (All)",
@@ -664,7 +659,6 @@ class ModerationBot:
                 ),
                 InlineKeyboardButton(
                     f"{'✅' if settings['block_links'] else '❌'} 🔗 Links",
-                    callback_data="toggle_block_links"
                 ),
             ],
             # Row 4: Commands & Premium Stickers
@@ -756,13 +750,11 @@ class ModerationBot:
                 ),
                 InlineKeyboardButton(
                     f"{'✅' if exemptions.get('exempt_photos', True) else '❌'} 📸 Photos",
-                    callback_data=f"exempt_photos_{user_id}"
                 ),
             ],
             [
                 InlineKeyboardButton(
                     f"{'✅' if exemptions.get('exempt_videos', True) else '❌'} 🎥 Videos",
-                    callback_data=f"exempt_videos_{user_id}"
                 ),
                 InlineKeyboardButton(
                     f"{'✅' if exemptions['exempt_media'] else '❌'} 📁 Media (All)",
@@ -776,7 +768,6 @@ class ModerationBot:
                 ),
                 InlineKeyboardButton(
                     f"{'✅' if exemptions['exempt_links'] else '❌'} 🔗 Links",
-                    callback_data=f"exempt_links_{user_id}"
                 ),
             ],
             [
@@ -852,7 +843,7 @@ class ModerationBot:
             settings.get('block_stickers', False),
             settings.get('block_media', False),
             settings.get('block_forwards', False),
-            settings.get('block_links', False),
+            settings.get(False),
             settings.get('block_commands', False),
             settings.get('block_premium_stickers', False),
             settings.get('block_channel_posts', False),
@@ -1012,12 +1003,8 @@ class ModerationBot:
             elif data.startswith("exempt_embed_link_"):
                 exemption_type = "embed_link"
                 target_user_id = int(data.replace("exempt_embed_link_", ""))
-            elif data.startswith("exempt_photos_"):
                 exemption_type = "photos"
-                target_user_id = int(data.replace("exempt_photos_", ""))
-            elif data.startswith("exempt_videos_"):
                 exemption_type = "videos"
-                target_user_id = int(data.replace("exempt_videos_", ""))
             else:
                 parts = data.split("_")
                 exemption_type = parts[1]
@@ -1275,11 +1262,8 @@ class ModerationBot:
             status = "ENABLED" if new_value else "DISABLED"
             feature_names = {
                 'block_stickers': 'Sticker Blocking',
-                'block_photos': 'Photo Blocking',
-                'block_videos': 'Video Blocking',
                 'block_media': 'Media Blocking',
                 'block_forwards': 'Forward Blocking',
-                'block_links': 'Link Blocking',
                 'block_commands': 'Command Blocking',
                 'block_premium_stickers': 'Premium Sticker Blocking',
                 'block_channel_posts': 'Channel Post Blocking',
@@ -1307,7 +1291,7 @@ class ModerationBot:
             settings = await self.db.get_settings(chat_id)
             
             main_permissions = [
-                'block_stickers', 'block_photos', 'block_videos', 'block_media', 'block_forwards', 'block_links',
+                'block_stickers', 'block_media', 'block_forwards', 'block_links',
                 'block_commands', 'block_premium_stickers', 'block_channel_posts', 'block_pinned_messages'
             ]
             
