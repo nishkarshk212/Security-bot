@@ -64,6 +64,8 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS group_settings (
                     chat_id INTEGER PRIMARY KEY,
                     block_stickers BOOLEAN DEFAULT 0,
+                    block_photos BOOLEAN DEFAULT 0,
+                    block_videos BOOLEAN DEFAULT 0,
                     block_media BOOLEAN DEFAULT 0,
                     block_forwards BOOLEAN DEFAULT 0,
                     block_links BOOLEAN DEFAULT 0,
@@ -92,6 +94,8 @@ class DatabaseManager:
                     first_name TEXT,
                     approved_by INTEGER,
                     exempt_stickers BOOLEAN DEFAULT 1,
+                    exempt_photos BOOLEAN DEFAULT 1,
+                    exempt_videos BOOLEAN DEFAULT 1,
                     exempt_media BOOLEAN DEFAULT 1,
                     exempt_forwards BOOLEAN DEFAULT 0,
                     exempt_links BOOLEAN DEFAULT 0,
@@ -121,6 +125,8 @@ class DatabaseManager:
                 ('group_settings', 'block_video_note', '0'),
                 ('group_settings', 'block_poll', '0'),
                 ('group_settings', 'block_embed_link', '0'),
+                ('group_settings', 'block_photos', '0'),
+                ('group_settings', 'block_videos', '0'),
                 ('approved_users', 'exempt_pinned_messages', '0'),
                 ('approved_users', 'exempt_premium_stickers', '1'),
                 ('approved_users', 'exempt_channel_posts', '0'),
@@ -130,7 +136,9 @@ class DatabaseManager:
                 ('approved_users', 'exempt_voice', '1'),
                 ('approved_users', 'exempt_video_note', '1'),
                 ('approved_users', 'exempt_poll', '1'),
-                ('approved_users', 'exempt_embed_link', '1')
+                ('approved_users', 'exempt_embed_link', '1'),
+                ('approved_users', 'exempt_photos', '1'),
+                ('approved_users', 'exempt_videos', '1')
             ]
             
             for table, col, default in new_cols:
@@ -145,7 +153,7 @@ class DatabaseManager:
         """Get settings for a specific chat"""
         async with aiosqlite.connect(self.db_file) as db:
             cursor = await db.execute(
-                'SELECT block_stickers, block_media, block_forwards, block_links, block_commands, block_premium_stickers, block_channel_posts, block_pinned_messages, block_contacts, block_location, block_documents, block_voice, block_video_note, block_poll, block_embed_link FROM group_settings WHERE chat_id = ?',
+                'SELECT block_stickers, block_photos, block_videos, block_media, block_forwards, block_links, block_commands, block_premium_stickers, block_channel_posts, block_pinned_messages, block_contacts, block_location, block_documents, block_voice, block_video_note, block_poll, block_embed_link FROM group_settings WHERE chat_id = ?',
                 (chat_id,)
             )
             row = await cursor.fetchone()
@@ -154,20 +162,22 @@ class DatabaseManager:
                 return {
                     'chat_id': chat_id,
                     'block_stickers': bool(row[0]),
-                    'block_media': bool(row[1]),
-                    'block_forwards': bool(row[2]),
-                    'block_links': bool(row[3]),
-                    'block_commands': bool(row[4]),
-                    'block_premium_stickers': bool(row[5]),
-                    'block_channel_posts': bool(row[6]),
-                    'block_pinned_messages': bool(row[7]),
-                    'block_contacts': bool(row[8]),
-                    'block_location': bool(row[9]),
-                    'block_documents': bool(row[10]),
-                    'block_voice': bool(row[11]),
-                    'block_video_note': bool(row[12]),
-                    'block_poll': bool(row[13]),
-                    'block_embed_link': bool(row[14]),
+                    'block_photos': bool(row[1]),
+                    'block_videos': bool(row[2]),
+                    'block_media': bool(row[3]),
+                    'block_forwards': bool(row[4]),
+                    'block_links': bool(row[5]),
+                    'block_commands': bool(row[6]),
+                    'block_premium_stickers': bool(row[7]),
+                    'block_channel_posts': bool(row[8]),
+                    'block_pinned_messages': bool(row[9]),
+                    'block_contacts': bool(row[10]),
+                    'block_location': bool(row[11]),
+                    'block_documents': bool(row[12]),
+                    'block_voice': bool(row[13]),
+                    'block_video_note': bool(row[14]),
+                    'block_poll': bool(row[15]),
+                    'block_embed_link': bool(row[16]),
                 }
             else:
                 # Create default settings
@@ -207,17 +217,17 @@ class DatabaseManager:
             )
             await db.commit()
     
-    async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link):
+    async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_photos, exempt_videos, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link):
         """Update user's exemption settings"""
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
                 '''UPDATE approved_users 
-                   SET exempt_stickers = ?, exempt_media = ?, 
+                   SET exempt_stickers = ?, exempt_photos = ?, exempt_videos = ?, exempt_media = ?, 
                        exempt_forwards = ?, exempt_links = ?, exempt_commands = ?,
                        exempt_premium_stickers = ?, exempt_channel_posts = ?, exempt_pinned_messages = ?,
                        exempt_contacts = ?, exempt_location = ?, exempt_documents = ?, exempt_voice = ?, exempt_video_note = ?, exempt_poll = ?, exempt_embed_link = ?
                    WHERE chat_id = ? AND user_id = ?''',
-                (exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, chat_id, user_id)
+                (exempt_stickers, exempt_photos, exempt_videos, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, chat_id, user_id)
             )
             await db.commit()
     
@@ -225,7 +235,7 @@ class DatabaseManager:
         """Get user's exemption settings"""
         async with aiosqlite.connect(self.db_file) as db:
             cursor = await db.execute(
-                'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link FROM approved_users WHERE chat_id = ? AND user_id = ?',
+                'SELECT exempt_stickers, exempt_photos, exempt_videos, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link FROM approved_users WHERE chat_id = ? AND user_id = ?',
                 (chat_id, user_id)
             )
             row = await cursor.fetchone()
@@ -233,20 +243,22 @@ class DatabaseManager:
             if row:
                 return {
                     'exempt_stickers': bool(row[0]),
-                    'exempt_media': bool(row[1]),
-                    'exempt_forwards': bool(row[2]),
-                    'exempt_links': bool(row[3]),
-                    'exempt_commands': bool(row[4]),
-                    'exempt_premium_stickers': bool(row[5]),
-                    'exempt_channel_posts': bool(row[6]),
-                    'exempt_pinned_messages': bool(row[7]),
-                    'exempt_contacts': bool(row[8]),
-                    'exempt_location': bool(row[9]),
-                    'exempt_documents': bool(row[10]),
-                    'exempt_voice': bool(row[11]),
-                    'exempt_video_note': bool(row[12]),
-                    'exempt_poll': bool(row[13]),
-                    'exempt_embed_link': bool(row[14]),
+                    'exempt_photos': bool(row[1]),
+                    'exempt_videos': bool(row[2]),
+                    'exempt_media': bool(row[3]),
+                    'exempt_forwards': bool(row[4]),
+                    'exempt_links': bool(row[5]),
+                    'exempt_commands': bool(row[6]),
+                    'exempt_premium_stickers': bool(row[7]),
+                    'exempt_channel_posts': bool(row[8]),
+                    'exempt_pinned_messages': bool(row[9]),
+                    'exempt_contacts': bool(row[10]),
+                    'exempt_location': bool(row[11]),
+                    'exempt_documents': bool(row[12]),
+                    'exempt_voice': bool(row[13]),
+                    'exempt_video_note': bool(row[14]),
+                    'exempt_poll': bool(row[15]),
+                    'exempt_embed_link': bool(row[16]),
                 }
             return None
     
@@ -634,18 +646,29 @@ class ModerationBot:
     def _create_main_permissions_keyboard(self, settings):
         """Create inline keyboard for main permissions sub-panel"""
         keyboard = [
-            # Row 1: Stickers & Media
+            # Row 1: Stickers & Photos
             [
                 InlineKeyboardButton(
                     f"{'✅' if settings['block_stickers'] else '❌'} 🚫 Stickers",
                     callback_data="toggle_block_stickers"
                 ),
                 InlineKeyboardButton(
-                    f"{'✅' if settings['block_media'] else '❌'} 📸 Media",
+                    f"{'✅' if settings.get('block_photos', False) else '❌'} 📸 Photos",
+                    callback_data="toggle_block_photos"
+                ),
+            ],
+            # Row 2: Videos & Media
+            [
+                InlineKeyboardButton(
+                    f"{'✅' if settings.get('block_videos', False) else '❌'} 🎥 Videos",
+                    callback_data="toggle_block_videos"
+                ),
+                InlineKeyboardButton(
+                    f"{'✅' if settings['block_media'] else '❌'} 📁 Media (All)",
                     callback_data="toggle_block_media"
                 ),
             ],
-            # Row 2: Forwards & Links
+            # Row 3: Forwards & Links
             [
                 InlineKeyboardButton(
                     f"{'✅' if settings['block_forwards'] else '❌'} ↗️ Forwards",
@@ -656,7 +679,7 @@ class ModerationBot:
                     callback_data="toggle_block_links"
                 ),
             ],
-            # Row 3: Commands & Premium Stickers
+            # Row 4: Commands & Premium Stickers
             [
                 InlineKeyboardButton(
                     f"{'✅' if settings['block_commands'] else '❌'} ⌨️ Commands",
@@ -667,7 +690,7 @@ class ModerationBot:
                     callback_data="toggle_block_premium_stickers"
                 ),
             ],
-            # Row 4: Channel Posts & Pinned Messages
+            # Row 5: Channel Posts & Pinned Messages
             [
                 InlineKeyboardButton(
                     f"{'✅' if settings.get('block_channel_posts', False) else '❌'} 📢 Channel Posts",
@@ -678,7 +701,7 @@ class ModerationBot:
                     callback_data="toggle_block_pinned_messages"
                 ),
             ],
-            # Row 5: Back Button
+            # Row 6: Back Button
             [
                 InlineKeyboardButton("⬅️ Back to Settings", callback_data="back_to_main_settings"),
             ],
@@ -744,7 +767,17 @@ class ModerationBot:
                     callback_data=f"exempt_stickers_{user_id}"
                 ),
                 InlineKeyboardButton(
-                    f"{'✅' if exemptions['exempt_media'] else '❌'} 📸 Media",
+                    f"{'✅' if exemptions.get('exempt_photos', True) else '❌'} 📸 Photos",
+                    callback_data=f"exempt_photos_{user_id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"{'✅' if exemptions.get('exempt_videos', True) else '❌'} 🎥 Videos",
+                    callback_data=f"exempt_videos_{user_id}"
+                ),
+                InlineKeyboardButton(
+                    f"{'✅' if exemptions['exempt_media'] else '❌'} 📁 Media (All)",
                     callback_data=f"exempt_media_{user_id}"
                 ),
             ],
@@ -803,12 +836,12 @@ class ModerationBot:
                     f"{'✅' if exemptions.get('exempt_video_note', False) else '❌'} 📹 Video Note",
                     callback_data=f"exempt_video_note_{user_id}"
                 ),
-            ],
-            [
                 InlineKeyboardButton(
                     f"{'✅' if exemptions.get('exempt_poll', False) else '❌'} 📊 Poll",
                     callback_data=f"exempt_poll_{user_id}"
                 ),
+            ],
+            [
                 InlineKeyboardButton(
                     f"{'✅' if exemptions.get('exempt_embed_link', False) else '❌'} 🔗 Embed Link",
                     callback_data=f"exempt_embed_link_{user_id}"
@@ -991,6 +1024,12 @@ class ModerationBot:
             elif data.startswith("exempt_embed_link_"):
                 exemption_type = "embed_link"
                 target_user_id = int(data.replace("exempt_embed_link_", ""))
+            elif data.startswith("exempt_photos_"):
+                exemption_type = "photos"
+                target_user_id = int(data.replace("exempt_photos_", ""))
+            elif data.startswith("exempt_videos_"):
+                exemption_type = "videos"
+                target_user_id = int(data.replace("exempt_videos_", ""))
             else:
                 parts = data.split("_")
                 exemption_type = parts[1]
@@ -1011,6 +1050,8 @@ class ModerationBot:
                 chat_id,
                 target_user_id,
                 exemptions['exempt_stickers'],
+                exemptions.get('exempt_photos', True),
+                exemptions.get('exempt_videos', True),
                 exemptions['exempt_media'],
                 exemptions['exempt_forwards'],
                 exemptions['exempt_links'],
@@ -1246,6 +1287,8 @@ class ModerationBot:
             status = "ENABLED" if new_value else "DISABLED"
             feature_names = {
                 'block_stickers': 'Sticker Blocking',
+                'block_photos': 'Photo Blocking',
+                'block_videos': 'Video Blocking',
                 'block_media': 'Media Blocking',
                 'block_forwards': 'Forward Blocking',
                 'block_links': 'Link Blocking',
@@ -1276,7 +1319,7 @@ class ModerationBot:
             settings = await self.db.get_settings(chat_id)
             
             main_permissions = [
-                'block_stickers', 'block_media', 'block_forwards', 'block_links',
+                'block_stickers', 'block_photos', 'block_videos', 'block_media', 'block_forwards', 'block_links',
                 'block_commands', 'block_premium_stickers', 'block_channel_posts', 'block_pinned_messages'
             ]
             
@@ -2077,19 +2120,51 @@ class ModerationBot:
         # Check general media blocking (skip for users with exemption)
         # This handles photos, videos, audio, animations
         # Voice, video_note, documents, contacts, location have their own separate settings
+        
+        # Check photo blocking
+        if message.photo and settings.get('block_photos', False):
+            if exemptions and exemptions.get('exempt_photos', True):
+                logger.info(f"✅ User {user.id} exempt from photo blocking")
+            else:
+                try:
+                    await message.delete()
+                    logger.info(f"✅ Deleted photo message from user {user.id if user else 'unknown'} in {chat.id}")
+                    await self.send_auto_delete_message(
+                        message,
+                        f"📸 Photos are not allowed in this group.",
+                        delete_after=60,
+                        parse_mode='HTML'
+                    )
+                except Exception as e:
+                    logger.error(f"❌ Failed to delete photo message: {e}")
+                    print(f"❌ Error deleting photo: {e}")
+                return
+        
+        # Check video blocking
+        if message.video and settings.get('block_videos', False):
+            if exemptions and exemptions.get('exempt_videos', True):
+                logger.info(f"✅ User {user.id} exempt from video blocking")
+            else:
+                try:
+                    await message.delete()
+                    logger.info(f"✅ Deleted video message from user {user.id if user else 'unknown'} in {chat.id}")
+                    await self.send_auto_delete_message(
+                        message,
+                        f"🎥 Videos are not allowed in this group.",
+                        delete_after=60,
+                        parse_mode='HTML'
+                    )
+                except Exception as e:
+                    logger.error(f"❌ Failed to delete video message: {e}")
+                    print(f"❌ Error deleting video: {e}")
+                return
+        
+        # Check general media blocking (audio, animation, and other media)
         if settings['block_media']:
             has_media = False
             media_type = "Media"
             
             # Debug logging for all media types
-            if message.photo:
-                logger.info(f"📸 Photo detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
-                has_media = True
-                media_type = "Photos"
-            if message.video:
-                logger.info(f"🎥 Video detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
-                has_media = True
-                media_type = "Videos"
             if message.audio:
                 logger.info(f"🎵 Audio detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
                 has_media = True
@@ -2110,7 +2185,7 @@ class ModerationBot:
                     logger.info(f"✅ Deleted {media_type} message from user {user.id if user else 'unknown'} in {chat.id}")
                     await self.send_auto_delete_message(
                         message,
-                        f"📸 {media_type} are not allowed in this group.",
+                        f"📁 {media_type} are not allowed in this group.",
                         delete_after=60,
                         parse_mode='HTML'
                     )
