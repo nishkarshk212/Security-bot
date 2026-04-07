@@ -631,57 +631,45 @@ class ModerationBot:
     def _create_main_permissions_keyboard(self, settings):
         """Create inline keyboard for main permissions sub-panel"""
         keyboard = [
-            # Row 1: Stickers & Photos
+            # Row 1: Stickers & Media
             [
                 InlineKeyboardButton(
                     f"{'✅' if settings['block_stickers'] else '❌'} 🚫 Stickers",
                     callback_data="toggle_block_stickers"
                 ),
                 InlineKeyboardButton(
-                    f"{'✅' if settings.get(False) else '❌'} 📸 Photos",
-                ),
-            ],
-            # Row 2: Videos & Media
-            [
-                InlineKeyboardButton(
-                    f"{'✅' if settings.get(False) else '❌'} 🎥 Videos",
-                ),
-                InlineKeyboardButton(
-                    f"{'✅' if settings['block_media'] else '❌'} 📁 Media (All)",
+                    f"{'✅' if settings['block_media'] else '❌'} 📁 Media",
                     callback_data="toggle_block_media"
                 ),
             ],
-            # Row 3: Forwards
+            # Row 2: Forwards & Commands
             [
                 InlineKeyboardButton(
                     f"{'✅' if settings['block_forwards'] else '❌'} ↗️ Forwards",
                     callback_data="toggle_block_forwards"
                 ),
-            ],
-            # Row 4: Commands & Premium Stickers
-            [
                 InlineKeyboardButton(
                     f"{'✅' if settings['block_commands'] else '❌'} ⌨️ Commands",
                     callback_data="toggle_block_commands"
                 ),
+            ],
+            # Row 3: Premium Stickers & Channel Posts
+            [
                 InlineKeyboardButton(
                     f"{'✅' if settings['block_premium_stickers'] else '❌'} ⭐ Premium Stickers",
                     callback_data="toggle_block_premium_stickers"
                 ),
-            ],
-            # Row 5: Channel Posts & Pinned Messages
-            [
                 InlineKeyboardButton(
                     f"{'✅' if settings.get('block_channel_posts', False) else '❌'} 📢 Channel Posts",
                     callback_data="toggle_block_channel_posts"
                 ),
+            ],
+            # Row 4: Pinned Messages & Back
+            [
                 InlineKeyboardButton(
                     f"{'✅' if settings.get('block_pinned_messages', False) else '❌'} 📌 Pinned Messages",
                     callback_data="toggle_block_pinned_messages"
                 ),
-            ],
-            # Row 6: Back Button
-            [
                 InlineKeyboardButton("⬅️ Back to Settings", callback_data="back_to_main_settings"),
             ],
         ]
