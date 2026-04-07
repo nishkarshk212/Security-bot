@@ -309,6 +309,9 @@ class ModerationBot:
         
         # Message handlers for moderation
         self.app.add_handler(MessageHandler(filters.ALL, self.moderate_message), group=1)
+        self.app.add_handler(MessageHandler(filters.UpdateType.EDITED_MESSAGE, self.moderate_message), group=1)
+        self.app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, self.moderate_message), group=1)
+        self.app.add_handler(MessageHandler(filters.UpdateType.EDITED_CHANNEL_POST, self.moderate_message), group=1)
     
     async def _is_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id=None):
         """Check if a user is an admin or creator of the chat, handling anonymous admins"""
@@ -1242,15 +1245,15 @@ class ModerationBot:
     
     async def moderate_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Main message moderation handler"""
-        if not update.message or not update.effective_chat:
-            return
-        
+        message = update.effective_message
         chat = update.effective_chat
         user = update.effective_user
-        message = update.message
         
-        # Skip if not a group
-        if chat.type not in ['group', 'supergroup']:
+        if not message or not chat:
+            return
+        
+        # Skip if not a group (allow in channels if we want to moderate them)
+        if chat.type not in ['group', 'supergroup', 'channel']:
             return
         
         # Check global ban first (before any other checks)
@@ -1264,6 +1267,10 @@ class ModerationBot:
         
         # Get settings first (needed for other checks)
         settings = await self.db.get_settings(chat.id)
+        if not settings:
+            # Initialize settings if they don't exist for this chat
+            await self.db.initialize_settings(chat.id)
+            settings = await self.db.get_settings(chat.id)
         
         # LOGGING FOR DEBUGGING
         if message.sticker:
@@ -1279,6 +1286,9 @@ class ModerationBot:
         for entity in entities:
             if hasattr(entity, 'custom_emoji_id') and entity.custom_emoji_id:
                 logger.info(f"Custom emoji detected in {chat.title} ({chat.id}) from {user.first_name if user else 'Unknown'}")
+                break
+            if entity.type == 'custom_emoji':
+                logger.info(f"Custom emoji entity type detected in {chat.title} ({chat.id})")
                 break
 
         # Check command blocking (skip for users with exemption)
