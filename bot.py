@@ -604,7 +604,21 @@ class ModerationBot:
         )
     
     def _create_settings_keyboard(self, settings):
-        """Create inline keyboard for settings with grid layout"""
+        """Create main settings keyboard with two category buttons"""
+        keyboard = [
+            [
+                InlineKeyboardButton("🛡️ Permission", callback_data="open_main_permissions"),
+                InlineKeyboardButton("➕ Other Permission", callback_data="open_other_permissions"),
+            ],
+            [
+                InlineKeyboardButton("🔄 Refresh", callback_data="refresh_settings"),
+                InlineKeyboardButton("❌ Close", callback_data="close_settings"),
+            ],
+        ]
+        return keyboard
+    
+    def _create_main_permissions_keyboard(self, settings):
+        """Create inline keyboard for main permissions sub-panel"""
         keyboard = [
             # Row 1: Stickers & Media
             [
@@ -650,17 +664,9 @@ class ModerationBot:
                     callback_data="toggle_block_pinned_messages"
                 ),
             ],
-            # Row 5: Other Permissions Button
+            # Row 5: Back Button
             [
-                InlineKeyboardButton(
-                    "➕ Other Permissions",
-                    callback_data="open_other_permissions"
-                ),
-            ],
-            # Row 6: Action Buttons
-            [
-                InlineKeyboardButton("🔄 Refresh", callback_data="refresh_settings"),
-                InlineKeyboardButton("❌ Close", callback_data="close_settings"),
+                InlineKeyboardButton("⬅️ Back to Settings", callback_data="back_to_main_settings"),
             ],
         ]
         return keyboard
@@ -699,7 +705,7 @@ class ModerationBot:
             ],
             # Row 4: Back Button
             [
-                InlineKeyboardButton("⬅️ Back to Main Settings", callback_data="back_to_main_settings"),
+                InlineKeyboardButton("⬅️ Back to Settings", callback_data="back_to_main_settings"),
             ],
         ]
         return keyboard
@@ -783,8 +789,19 @@ class ModerationBot:
         return InlineKeyboardMarkup(keyboard)
     
     def _format_settings_text(self, settings):
-        """Format settings into readable text"""
+        """Format settings into readable text with category summaries"""
         status_emoji = lambda x: "✅ Enabled" if x else "❌ Disabled"
+        
+        main_permissions_status = any([
+            settings.get('block_stickers', False),
+            settings.get('block_media', False),
+            settings.get('block_forwards', False),
+            settings.get('block_links', False),
+            settings.get('block_commands', False),
+            settings.get('block_premium_stickers', False),
+            settings.get('block_channel_posts', False),
+            settings.get('block_pinned_messages', False)
+        ])
         
         other_permissions_status = any([
             settings.get('block_voice', False),
@@ -796,16 +813,9 @@ class ModerationBot:
         
         text = style_text(
             "⚙️ Group Moderation Settings\n\n"
-            f"🚫 Block Stickers: {status_emoji(settings['block_stickers'])}\n"
-            f"📸 Block Media: {status_emoji(settings['block_media'])}\n"
-            f"↗️ Block Forwards: {status_emoji(settings['block_forwards'])}\n"
-            f"🔗 Block Links: {status_emoji(settings['block_links'])}\n"
-            f"⌨️ Block Commands: {status_emoji(settings['block_commands'])}\n"
-            f"⭐ Block Premium Stickers: {status_emoji(settings.get('block_premium_stickers', False))}\n"
-            f"📢 Block Channel Posts: {status_emoji(settings.get('block_channel_posts', False))}\n"
-            f"📌 Block Pinned Messages: {status_emoji(settings.get('block_pinned_messages', False))}\n"
+            f"🛡️ Main Permissions: {status_emoji(main_permissions_status)}\n"
             f"➕ Other Permissions: {status_emoji(other_permissions_status)}\n\n"
-            "Tap buttons above to toggle features.\n"
+            "Tap buttons below to manage specific categories.\n"
             "Use /free to exempt members from restrictions."
         )
         
@@ -1067,6 +1077,30 @@ class ModerationBot:
                 logger.error(f"Error in refresh_reload: {e}")
             return
 
+        # Handle open main permissions
+        if data == "open_main_permissions":
+            # Check if user has required admin permissions
+            user_id = query.from_user.id
+            can_configure = await self.can_user_configure_settings(chat_id, user_id, context)
+            if not can_configure:
+                await query.answer(
+                    style_text("❌ You need ban users and change group info permissions to access settings."),
+                    show_alert=True
+                )
+                return
+            
+            settings = await self.db.get_settings(chat_id)
+            keyboard = self._create_main_permissions_keyboard(settings)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.message.edit_text(
+                style_text("🛡️ Main Permissions Settings\n\nTap buttons to toggle features."),
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+            await query.answer()
+            return
+
         # Handle open other permissions
         if data == "open_other_permissions":
             # Check if user has required admin permissions
@@ -1192,12 +1226,20 @@ class ModerationBot:
             # Refresh settings panel
             settings = await self.db.get_settings(chat_id)
             
+            main_permissions = [
+                'block_stickers', 'block_media', 'block_forwards', 'block_links',
+                'block_commands', 'block_premium_stickers', 'block_channel_posts', 'block_pinned_messages'
+            ]
+            
             granular_settings = [
                 'block_voice', 'block_contacts', 'block_location',
                 'block_video_notes', 'block_documents'
             ]
             
-            if setting_name in granular_settings:
+            if setting_name in main_permissions:
+                keyboard = self._create_main_permissions_keyboard(settings)
+                settings_text = style_text("🛡️ Main Permissions Settings\n\nTap buttons to toggle features.")
+            elif setting_name in granular_settings:
                 keyboard = self._create_other_permissions_keyboard(settings)
                 settings_text = style_text("➕ Other Permissions Settings\n\nTap buttons to toggle features.")
             else:
