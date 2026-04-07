@@ -2037,7 +2037,7 @@ class ModerationBot:
         # Embed link blocking - check for web apps and link previews
         if settings.get('block_embed_link', False) and not is_media_blocked:
             # Check for web apps
-            if message.web_app:
+            if getattr(message, 'web_app', None):
                 if not (exemptions and exemptions.get('exempt_embed_link', False)):
                     is_media_blocked = True
                     media_feature_name = "Embed Links"
