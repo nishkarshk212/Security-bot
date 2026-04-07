@@ -2122,13 +2122,20 @@ class ModerationBot:
         # This handles photos, videos, audio, animations
         # Voice, video_note, documents, contacts, location have their own separate settings
         
+        # Debug: Log what type of message this is
+        logger.info(f"🔍 Message check - Photo: {bool(message.photo)}, Video: {bool(message.video)}, "
+                   f"block_photos: {settings.get('block_photos', False)}, block_videos: {settings.get('block_videos', False)}, "
+                   f"exemptions: {exemptions is not None}")
+        
         # Check photo blocking - handles single photos and photo albums
         if message.photo:
             logger.info(f"📸 Photo detected from user {user.id if user else 'unknown'} in {chat.id}")
             if settings.get('block_photos', False):
+                logger.info(f"🚫 Photo blocking is ENABLED for chat {chat.id}")
                 if exemptions and exemptions.get('exempt_photos', True):
                     logger.info(f"✅ User {user.id} exempt from photo blocking")
                 else:
+                    logger.info(f"❌ User {user.id} NOT exempt - deleting photo")
                     try:
                         await message.delete()
                         logger.info(f"✅ Deleted photo message from user {user.id if user else 'unknown'} in {chat.id}")
@@ -2142,14 +2149,18 @@ class ModerationBot:
                         logger.error(f"❌ Failed to delete photo message: {e}")
                         print(f"❌ Error deleting photo: {e}")
                     return
+            else:
+                logger.info(f"ℹ️ Photo blocking is DISABLED for chat {chat.id}")
         
         # Check video blocking - handles videos with/without captions
         if message.video:
             logger.info(f"🎥 Video detected from user {user.id if user else 'unknown'} in {chat.id}")
             if settings.get('block_videos', False):
+                logger.info(f"🚫 Video blocking is ENABLED for chat {chat.id}")
                 if exemptions and exemptions.get('exempt_videos', True):
                     logger.info(f"✅ User {user.id} exempt from video blocking")
                 else:
+                    logger.info(f"❌ User {user.id} NOT exempt - deleting video")
                     try:
                         await message.delete()
                         logger.info(f"✅ Deleted video message from user {user.id if user else 'unknown'} in {chat.id}")
@@ -2163,6 +2174,8 @@ class ModerationBot:
                         logger.error(f"❌ Failed to delete video message: {e}")
                         print(f"❌ Error deleting video: {e}")
                     return
+            else:
+                logger.info(f"ℹ️ Video blocking is DISABLED for chat {chat.id}")
         
         # Check general media blocking (audio, animation, and other media)
         if settings['block_media']:
@@ -2232,14 +2245,18 @@ class ModerationBot:
         
         # Check link blocking (skip for users with exemption)
         if settings['block_links']:
+            logger.info(f"🔗 Link blocking is ENABLED for chat {chat.id}")
             text_to_check = message.text or message.caption or ""
             entities_to_check = list(message.entities or []) + list(message.caption_entities or [])
+            
+            logger.info(f"🔍 Checking for links - Text length: {len(text_to_check)}, Entities: {len(entities_to_check)}")
             
             # Use advanced link detector
             has_link, urls_found = LinkDetector.detect_links(text_to_check, entities_to_check)
             
             if has_link:
                 # Log detected links
+                logger.info(f"🚫 Links detected: {len(urls_found)} links found")
                 for url in urls_found:
                     link_type = LinkDetector.get_link_type(url)
                     logger.info(f"🔗 Link detected ({link_type}) from user {user.id if user else 'unknown'}: {url}")
@@ -2247,6 +2264,8 @@ class ModerationBot:
                 if exemptions and exemptions.get('exempt_links', False):
                     logger.info(f"✅ User {user.id} exempt from link blocking")
                     return  # User is exempt
+                else:
+                    logger.info(f"❌ User {user.id} NOT exempt - deleting link message")
                 
                 try:
                     await message.delete()
@@ -2261,6 +2280,10 @@ class ModerationBot:
                     logger.error(f"❌ Failed to delete link message: {e}")
                     print(f"❌ Error deleting link: {e}")
                 return
+            else:
+                logger.info(f"ℹ️ No links detected in message")
+        else:
+            logger.info(f"ℹ️ Link blocking is DISABLED for chat {chat.id}")
         
         return
     
