@@ -783,17 +783,17 @@ class ModerationBot:
                 uid, name, uname, s, m, f, l, c, ps, cp = row
                 user_text = f"@{uname}" if uname else name
                 
-                # Format permissions
+                # Format permissions - Only show what is enabled
                 perms = []
-                if s: perms.append("🚫")
-                if m: perms.append("📸")
-                if f: perms.append("↗️")
-                if l: perms.append("🔗")
-                if c: perms.append("⌨️")
-                if ps: perms.append("⭐")
-                if cp: perms.append("📢")
+                if s: perms.append("🚫 Stickers")
+                if m: perms.append("📸 Media")
+                if f: perms.append("↗️ Forwards")
+                if l: perms.append("🔗 Links")
+                if c: perms.append("⌨️ Commands")
+                if ps: perms.append("⭐ Premium")
+                if cp: perms.append("📢 Channel")
                 
-                perms_str = " ".join(perms) if perms else "None"
+                perms_str = ", ".join(perms) if perms else "None"
                 text += f"{i}. {user_text} (<code>{uid}</code>)\n   └ {perms_str}\n\n"
             
             if len(rows) > 20:
@@ -1258,7 +1258,7 @@ class ModerationBot:
         
         async with aiosqlite.connect(self.db.db_file) as db:
             cursor = await db.execute(
-                'SELECT user_id, first_name, username FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
+                'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
                 (chat.id,)
             )
             rows = await cursor.fetchall()
@@ -1274,9 +1274,21 @@ class ModerationBot:
         else:
             text = f"📋 <b>Freed Members ({len(rows)}):</b>\n\n"
             for i, row in enumerate(rows[:50], 1):  # Limit to 50 for message length
-                user_id, first_name, username = row
+                user_id, first_name, username, s, m, f, l, c, ps, cp = row
                 user_text = f"@{username}" if username else first_name
-                text += f"{i}. {user_text} (<code>{user_id}</code>)\n"
+                
+                # Format permissions - Only show what is enabled
+                perms = []
+                if s: perms.append("🚫 Stickers")
+                if m: perms.append("📸 Media")
+                if f: perms.append("↗️ Forwards")
+                if l: perms.append("🔗 Links")
+                if c: perms.append("⌨️ Commands")
+                if ps: perms.append("⭐ Premium")
+                if cp: perms.append("📢 Channel")
+                
+                perms_str = ", ".join(perms) if perms else "None"
+                text += f"{i}. {user_text} (<code>{user_id}</code>)\n   └ {perms_str}\n\n"
             
             if len(rows) > 50:
                 text += f"\n<i>... and {len(rows) - 50} more.</i>"
