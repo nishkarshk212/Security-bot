@@ -650,7 +650,25 @@ class ModerationBot:
                     callback_data="toggle_block_pinned_messages"
                 ),
             ],
-            # Row 5: Voice & Contacts
+            # Row 5: Other Permissions Button
+            [
+                InlineKeyboardButton(
+                    "➕ Other Permissions",
+                    callback_data="open_other_permissions"
+                ),
+            ],
+            # Row 6: Action Buttons
+            [
+                InlineKeyboardButton("🔄 Refresh", callback_data="refresh_settings"),
+                InlineKeyboardButton("❌ Close", callback_data="close_settings"),
+            ],
+        ]
+        return keyboard
+    
+    def _create_other_permissions_keyboard(self, settings):
+        """Create inline keyboard for other permissions sub-panel"""
+        keyboard = [
+            # Row 1: Voice & Contacts
             [
                 InlineKeyboardButton(
                     f"{'✅' if settings.get('block_voice', False) else '❌'} 🎤 Voice",
@@ -661,7 +679,7 @@ class ModerationBot:
                     callback_data="toggle_block_contacts"
                 ),
             ],
-            # Row 6: Location & Video Notes
+            # Row 2: Location & Video Notes
             [
                 InlineKeyboardButton(
                     f"{'✅' if settings.get('block_location', False) else '❌'} 📍 Location",
@@ -672,17 +690,16 @@ class ModerationBot:
                     callback_data="toggle_block_video_notes"
                 ),
             ],
-            # Row 7: Documents
+            # Row 3: Documents
             [
                 InlineKeyboardButton(
                     f"{'✅' if settings.get('block_documents', False) else '❌'} 📄 Documents",
                     callback_data="toggle_block_documents"
                 ),
             ],
-            # Row 8: Action Buttons
+            # Row 4: Back Button
             [
-                InlineKeyboardButton("🔄 Refresh", callback_data="refresh_settings"),
-                InlineKeyboardButton("❌ Close", callback_data="close_settings"),
+                InlineKeyboardButton("⬅️ Back to Main Settings", callback_data="back_to_main_settings"),
             ],
         ]
         return keyboard
@@ -769,6 +786,14 @@ class ModerationBot:
         """Format settings into readable text"""
         status_emoji = lambda x: "✅ Enabled" if x else "❌ Disabled"
         
+        other_permissions_status = any([
+            settings.get('block_voice', False),
+            settings.get('block_contacts', False),
+            settings.get('block_location', False),
+            settings.get('block_video_notes', False),
+            settings.get('block_documents', False)
+        ])
+        
         text = style_text(
             "⚙️ Group Moderation Settings\n\n"
             f"🚫 Block Stickers: {status_emoji(settings['block_stickers'])}\n"
@@ -779,11 +804,7 @@ class ModerationBot:
             f"⭐ Block Premium Stickers: {status_emoji(settings.get('block_premium_stickers', False))}\n"
             f"📢 Block Channel Posts: {status_emoji(settings.get('block_channel_posts', False))}\n"
             f"📌 Block Pinned Messages: {status_emoji(settings.get('block_pinned_messages', False))}\n"
-            f"🎤 Block Voice Messages: {status_emoji(settings.get('block_voice', False))}\n"
-            f"👤 Block Contacts: {status_emoji(settings.get('block_contacts', False))}\n"
-            f"📍 Block Location: {status_emoji(settings.get('block_location', False))}\n"
-            f"📹 Block Video Voice: {status_emoji(settings.get('block_video_notes', False))}\n"
-            f"📄 Block Documents: {status_emoji(settings.get('block_documents', False))}\n\n"
+            f"➕ Other Permissions: {status_emoji(other_permissions_status)}\n\n"
             "Tap buttons above to toggle features.\n"
             "Use /free to exempt members from restrictions."
         )
@@ -1046,6 +1067,55 @@ class ModerationBot:
                 logger.error(f"Error in refresh_reload: {e}")
             return
 
+        # Handle open other permissions
+        if data == "open_other_permissions":
+            # Check if user has required admin permissions
+            user_id = query.from_user.id
+            can_configure = await self.can_user_configure_settings(chat_id, user_id, context)
+            if not can_configure:
+                await query.answer(
+                    style_text("❌ You need ban users and change group info permissions to access settings."),
+                    show_alert=True
+                )
+                return
+            
+            settings = await self.db.get_settings(chat_id)
+            keyboard = self._create_other_permissions_keyboard(settings)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.message.edit_text(
+                style_text("➕ Other Permissions Settings\n\nTap buttons to toggle features."),
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+            await query.answer()
+            return
+            
+        # Handle back to main settings
+        if data == "back_to_main_settings":
+            # Check if user has required admin permissions
+            user_id = query.from_user.id
+            can_configure = await self.can_user_configure_settings(chat_id, user_id, context)
+            if not can_configure:
+                await query.answer(
+                    style_text("❌ You need ban users and change group info permissions to access settings."),
+                    show_alert=True
+                )
+                return
+            
+            settings = await self.db.get_settings(chat_id)
+            keyboard = self._create_settings_keyboard(settings)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            settings_text = self._format_settings_text(settings)
+            
+            await query.message.edit_text(
+                settings_text,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+            await query.answer()
+            return
+            
         # Handle refresh
         if data == "refresh_settings":
             settings = await self.db.get_settings(chat_id)
@@ -1121,9 +1191,20 @@ class ModerationBot:
             
             # Refresh settings panel
             settings = await self.db.get_settings(chat_id)
-            keyboard = self._create_settings_keyboard(settings)
+            
+            granular_settings = [
+                'block_voice', 'block_contacts', 'block_location',
+                'block_video_notes', 'block_documents'
+            ]
+            
+            if setting_name in granular_settings:
+                keyboard = self._create_other_permissions_keyboard(settings)
+                settings_text = style_text("➕ Other Permissions Settings\n\nTap buttons to toggle features.")
+            else:
+                keyboard = self._create_settings_keyboard(settings)
+                settings_text = self._format_settings_text(settings)
+            
             reply_markup = InlineKeyboardMarkup(keyboard)
-            settings_text = self._format_settings_text(settings)
             
             await query.message.edit_text(
                 settings_text,
