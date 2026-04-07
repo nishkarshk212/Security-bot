@@ -71,6 +71,11 @@ class DatabaseManager:
                     block_premium_stickers BOOLEAN DEFAULT 0,
                     block_channel_posts BOOLEAN DEFAULT 0,
                     block_pinned_messages BOOLEAN DEFAULT 0,
+                    block_voice BOOLEAN DEFAULT 0,
+                    block_contacts BOOLEAN DEFAULT 0,
+                    block_location BOOLEAN DEFAULT 0,
+                    block_video_notes BOOLEAN DEFAULT 0,
+                    block_documents BOOLEAN DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -92,31 +97,39 @@ class DatabaseManager:
                     exempt_premium_stickers BOOLEAN DEFAULT 1,
                     exempt_channel_posts BOOLEAN DEFAULT 0,
                     exempt_pinned_messages BOOLEAN DEFAULT 0,
+                    exempt_voice BOOLEAN DEFAULT 1,
+                    exempt_contacts BOOLEAN DEFAULT 1,
+                    exempt_location BOOLEAN DEFAULT 1,
+                    exempt_video_notes BOOLEAN DEFAULT 1,
+                    exempt_documents BOOLEAN DEFAULT 1,
                     approved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(chat_id, user_id)
                 )
             ''')
             
             # Migration: Add columns if they don't exist
-            try:
-                await db.execute('ALTER TABLE group_settings ADD COLUMN block_pinned_messages BOOLEAN DEFAULT 0')
-            except:
-                pass
-
-            try:
-                await db.execute('ALTER TABLE approved_users ADD COLUMN exempt_pinned_messages BOOLEAN DEFAULT 0')
-            except:
-                pass
-
-            try:
-                await db.execute('ALTER TABLE approved_users ADD COLUMN exempt_premium_stickers BOOLEAN DEFAULT 1')
-            except:
-                pass
+            new_cols = [
+                ('group_settings', 'block_pinned_messages', '0'),
+                ('group_settings', 'block_voice', '0'),
+                ('group_settings', 'block_contacts', '0'),
+                ('group_settings', 'block_location', '0'),
+                ('group_settings', 'block_video_notes', '0'),
+                ('group_settings', 'block_documents', '0'),
+                ('approved_users', 'exempt_pinned_messages', '0'),
+                ('approved_users', 'exempt_premium_stickers', '1'),
+                ('approved_users', 'exempt_channel_posts', '0'),
+                ('approved_users', 'exempt_voice', '1'),
+                ('approved_users', 'exempt_contacts', '1'),
+                ('approved_users', 'exempt_location', '1'),
+                ('approved_users', 'exempt_video_notes', '1'),
+                ('approved_users', 'exempt_documents', '1')
+            ]
             
-            try:
-                await db.execute('ALTER TABLE approved_users ADD COLUMN exempt_channel_posts BOOLEAN DEFAULT 0')
-            except:
-                pass
+            for table, col, default in new_cols:
+                try:
+                    await db.execute(f'ALTER TABLE {table} ADD COLUMN {col} BOOLEAN DEFAULT {default}')
+                except:
+                    pass
             
             await db.commit()
     
@@ -140,6 +153,11 @@ class DatabaseManager:
                     'block_premium_stickers': bool(row[6]),
                     'block_channel_posts': bool(row[7]),
                     'block_pinned_messages': bool(row[8]) if len(row) > 8 else False,
+                    'block_voice': bool(row[9]) if len(row) > 9 else False,
+                    'block_contacts': bool(row[10]) if len(row) > 10 else False,
+                    'block_location': bool(row[11]) if len(row) > 11 else False,
+                    'block_video_notes': bool(row[12]) if len(row) > 12 else False,
+                    'block_documents': bool(row[13]) if len(row) > 13 else False,
                 }
             else:
                 # Create default settings
@@ -171,22 +189,25 @@ class DatabaseManager:
             await db.execute(
                 '''INSERT OR REPLACE INTO approved_users 
                    (chat_id, user_id, username, first_name, approved_by, 
-                    exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, approved_at) 
-                   VALUES (?, ?, ?, ?, ?, 1, 1, 0, 0, 0, 1, 0, 0, CURRENT_TIMESTAMP)''',
+                    exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, 
+                    exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, 
+                    exempt_voice, exempt_contacts, exempt_location, exempt_video_notes, exempt_documents, approved_at) 
+                   VALUES (?, ?, ?, ?, ?, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, CURRENT_TIMESTAMP)''',
                 (chat_id, user_id, username, first_name, approved_by)
             )
             await db.commit()
     
-    async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages):
+    async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_voice, exempt_contacts, exempt_location, exempt_video_notes, exempt_documents):
         """Update user's exemption settings"""
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
                 '''UPDATE approved_users 
                    SET exempt_stickers = ?, exempt_media = ?, 
                        exempt_forwards = ?, exempt_links = ?, exempt_commands = ?,
-                       exempt_premium_stickers = ?, exempt_channel_posts = ?, exempt_pinned_messages = ?
+                       exempt_premium_stickers = ?, exempt_channel_posts = ?, exempt_pinned_messages = ?,
+                       exempt_voice = ?, exempt_contacts = ?, exempt_location = ?, exempt_video_notes = ?, exempt_documents = ?
                    WHERE chat_id = ? AND user_id = ?''',
-                (exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, chat_id, user_id)
+                (exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_voice, exempt_contacts, exempt_location, exempt_video_notes, exempt_documents, chat_id, user_id)
             )
             await db.commit()
     
@@ -194,10 +215,11 @@ class DatabaseManager:
         """Get user's exemption settings"""
         async with aiosqlite.connect(self.db_file) as db:
             cursor = await db.execute(
-                'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages FROM approved_users WHERE chat_id = ? AND user_id = ?',
+                'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_voice, exempt_contacts, exempt_location, exempt_video_notes, exempt_documents FROM approved_users WHERE chat_id = ? AND user_id = ?',
                 (chat_id, user_id)
             )
             row = await cursor.fetchone()
+            
             if row:
                 return {
                     'exempt_stickers': bool(row[0]),
@@ -208,6 +230,11 @@ class DatabaseManager:
                     'exempt_premium_stickers': bool(row[5]),
                     'exempt_channel_posts': bool(row[6]),
                     'exempt_pinned_messages': bool(row[7]) if len(row) > 7 else False,
+                    'exempt_voice': bool(row[8]) if len(row) > 8 else False,
+                    'exempt_contacts': bool(row[9]) if len(row) > 9 else False,
+                    'exempt_location': bool(row[10]) if len(row) > 10 else False,
+                    'exempt_video_notes': bool(row[11]) if len(row) > 11 else False,
+                    'exempt_documents': bool(row[12]) if len(row) > 12 else False,
                 }
             return None
     
@@ -481,9 +508,19 @@ class ModerationBot:
             "Block messages starting with / or ! (custom commands)\n\n"
             "📢 Channel Post Blocking\n"
             "Block messages sent from channels (anonymous channel posts)\n\n"
+            "🎤 Voice Blocking\n"
+            "Block voice messages in the group\n\n"
+            "👤 Contact Blocking\n"
+            "Block sharing of contact information\n\n"
+            "📍 Location Blocking\n"
+            "Block sending of location or venues\n\n"
+            "📹 Video Voice Blocking\n"
+            "Block video notes (video voice messages)\n\n"
+            "📄 Document Blocking\n"
+            "Block document and file uploads\n\n"
             "✅ Member Approval System\n"
             "Free trusted members to exempt them from restrictions.\n"
-            "Configure exemptions for stickers, media, forwards, links, and commands.\n\n"
+            "Configure exemptions for stickers, media, forwards, links, and more.\n\n"
             "How to Free Members:\n"
             "1. Reply to a member's message\n"
             "2. Use /free command\n"
@@ -589,7 +626,36 @@ class ModerationBot:
                     callback_data="toggle_block_pinned_messages"
                 ),
             ],
-            # Row 5: Action Buttons
+            # Row 5: Voice & Contacts
+            [
+                InlineKeyboardButton(
+                    f"{'✅' if settings.get('block_voice', False) else '❌'} 🎤 Voice",
+                    callback_data="toggle_block_voice"
+                ),
+                InlineKeyboardButton(
+                    f"{'✅' if settings.get('block_contacts', False) else '❌'} 👤 Contacts",
+                    callback_data="toggle_block_contacts"
+                ),
+            ],
+            # Row 6: Location & Video Notes
+            [
+                InlineKeyboardButton(
+                    f"{'✅' if settings.get('block_location', False) else '❌'} 📍 Location",
+                    callback_data="toggle_block_location"
+                ),
+                InlineKeyboardButton(
+                    f"{'✅' if settings.get('block_video_notes', False) else '❌'} 📹 Video Voice",
+                    callback_data="toggle_block_video_notes"
+                ),
+            ],
+            # Row 7: Documents
+            [
+                InlineKeyboardButton(
+                    f"{'✅' if settings.get('block_documents', False) else '❌'} 📄 Documents",
+                    callback_data="toggle_block_documents"
+                ),
+            ],
+            # Row 8: Action Buttons
             [
                 InlineKeyboardButton("🔄 Refresh", callback_data="refresh_settings"),
                 InlineKeyboardButton("❌ Close", callback_data="close_settings"),
@@ -642,6 +708,32 @@ class ModerationBot:
             ],
             [
                 InlineKeyboardButton(
+                    f"{'✅' if exemptions.get('exempt_voice', False) else '❌'} 🎤 Voice",
+                    callback_data=f"exempt_voice_{user_id}"
+                ),
+                InlineKeyboardButton(
+                    f"{'✅' if exemptions.get('exempt_contacts', False) else '❌'} 👤 Contacts",
+                    callback_data=f"exempt_contacts_{user_id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"{'✅' if exemptions.get('exempt_location', False) else '❌'} 📍 Location",
+                    callback_data=f"exempt_location_{user_id}"
+                ),
+                InlineKeyboardButton(
+                    f"{'✅' if exemptions.get('exempt_video_notes', False) else '❌'} 📹 Video Voice",
+                    callback_data=f"exempt_video_notes_{user_id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"{'✅' if exemptions.get('exempt_documents', False) else '❌'} 📄 Documents",
+                    callback_data=f"exempt_documents_{user_id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
                     "❌ Close",
                     callback_data="close_approval"
                 ),
@@ -663,6 +755,11 @@ class ModerationBot:
             f"⭐ Block Premium Stickers: {status_emoji(settings.get('block_premium_stickers', False))}\n"
             f"📢 Block Channel Posts: {status_emoji(settings.get('block_channel_posts', False))}\n"
             f"📌 Block Pinned Messages: {status_emoji(settings.get('block_pinned_messages', False))}\n"
+            f"🎤 Block Voice Messages: {status_emoji(settings.get('block_voice', False))}\n"
+            f"👤 Block Contacts: {status_emoji(settings.get('block_contacts', False))}\n"
+            f"📍 Block Location: {status_emoji(settings.get('block_location', False))}\n"
+            f"📹 Block Video Voice: {status_emoji(settings.get('block_video_notes', False))}\n"
+            f"📄 Block Documents: {status_emoji(settings.get('block_documents', False))}\n\n"
             "Tap buttons above to toggle features.\n"
             "Use /free to exempt members from restrictions."
         )
@@ -710,9 +807,19 @@ class ModerationBot:
                 "Block messages starting with / or ! (custom commands)\n\n"
                 "📢 Channel Post Blocking\n"
                 "Block messages sent from channels (anonymous channel posts)\n\n"
+                "🎤 Voice Blocking\n"
+                "Block voice messages in the group\n\n"
+                "👤 Contact Blocking\n"
+                "Block sharing of contact information\n\n"
+                "📍 Location Blocking\n"
+                "Block sending of location or venues\n\n"
+                "📹 Video Voice Blocking\n"
+                "Block video notes (video voice messages)\n\n"
+                "📄 Document Blocking\n"
+                "Block document and file uploads\n\n"
                 "✅ Member Approval System\n"
                 "Approve trusted members to exempt them from restrictions.\n"
-                "Configure exemptions for stickers, media, forwards, links, and commands.\n\n"
+                "Configure exemptions for stickers, media, forwards, links, and more.\n\n"
                 "How to Free Members:\n"
                 "1. Reply to a member's message\n"
                 "2. Use /free command\n"
@@ -745,6 +852,21 @@ class ModerationBot:
             elif data.startswith("exempt_pinned_messages_"):
                 exemption_type = "pinned_messages"
                 target_user_id = int(data.replace("exempt_pinned_messages_", ""))
+            elif data.startswith("exempt_voice_"):
+                exemption_type = "voice"
+                target_user_id = int(data.replace("exempt_voice_", ""))
+            elif data.startswith("exempt_contacts_"):
+                exemption_type = "contacts"
+                target_user_id = int(data.replace("exempt_contacts_", ""))
+            elif data.startswith("exempt_location_"):
+                exemption_type = "location"
+                target_user_id = int(data.replace("exempt_location_", ""))
+            elif data.startswith("exempt_video_notes_"):
+                exemption_type = "video_notes"
+                target_user_id = int(data.replace("exempt_video_notes_", ""))
+            elif data.startswith("exempt_documents_"):
+                exemption_type = "documents"
+                target_user_id = int(data.replace("exempt_documents_", ""))
             else:
                 parts = data.split("_")
                 exemption_type = parts[1]
@@ -771,7 +893,12 @@ class ModerationBot:
                 exemptions['exempt_commands'],
                 exemptions['exempt_premium_stickers'],
                 exemptions['exempt_channel_posts'],
-                exemptions.get('exempt_pinned_messages', False)
+                exemptions.get('exempt_pinned_messages', False),
+                exemptions.get('exempt_voice', False),
+                exemptions.get('exempt_contacts', False),
+                exemptions.get('exempt_location', False),
+                exemptions.get('exempt_video_notes', False),
+                exemptions.get('exempt_documents', False)
             )
             
             # Update keyboard
@@ -796,7 +923,7 @@ class ModerationBot:
         if data == "view_freed_users":
             async with aiosqlite.connect(self.db.db_file) as db:
                 cursor = await db.execute(
-                    'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
+                    'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_voice, exempt_contacts, exempt_location, exempt_video_notes, exempt_documents FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
                     (chat_id,)
                 )
                 rows = await cursor.fetchall()
@@ -807,7 +934,7 @@ class ModerationBot:
                 
             text = f"👥 <b>Freed Members & Permissions ({len(rows)}):</b>\n\n"
             for i, row in enumerate(rows[:20], 1):  # Limit to 20 for message length
-                uid, name, uname, s, m, f, l, c, ps, cp = row
+                uid, name, uname, s, m, f, l, c, ps, cp, pin, v, con, loc, vn, doc = row
                 user_text = f"@{uname}" if uname else name
                 
                 # Format permissions - Only show what is enabled
@@ -819,7 +946,12 @@ class ModerationBot:
                 if c: perms.append("⌨️ Commands")
                 if ps: perms.append("⭐ Premium")
                 if cp: perms.append("📢 Channel")
-                if row[9] if len(row) > 9 else False: perms.append("📌 Pinned")
+                if pin: perms.append("📌 Pinned")
+                if v: perms.append("🎤 Voice")
+                if con: perms.append("👤 Contact")
+                if loc: perms.append("📍 Location")
+                if vn: perms.append("📹 Video Voice")
+                if doc: perms.append("📄 Document")
                 
                 perms_str = ", ".join(perms) if perms else "None"
                 text += f"{i}. {user_text} (<code>{uid}</code>)\n   └ {perms_str}\n\n"
@@ -920,6 +1052,11 @@ class ModerationBot:
                 'block_premium_stickers': 'Premium Sticker Blocking',
                 'block_channel_posts': 'Channel Post Blocking',
                 'block_pinned_messages': 'Pinned Message Blocking',
+                'block_voice': 'Voice Message Blocking',
+                'block_contacts': 'Contact Blocking',
+                'block_location': 'Location Blocking',
+                'block_video_notes': 'Video Voice Blocking',
+                'block_documents': 'Document Blocking',
             }
             
             feature_name = feature_names.get(setting_name, setting_name)
@@ -1277,7 +1414,7 @@ class ModerationBot:
         
         async with aiosqlite.connect(self.db.db_file) as db:
             cursor = await db.execute(
-                'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
+                'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_links, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_voice, exempt_contacts, exempt_location, exempt_video_notes, exempt_documents FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
                 (chat.id,)
             )
             rows = await cursor.fetchall()
@@ -1293,7 +1430,7 @@ class ModerationBot:
         else:
             text = f"📋 <b>Freed Members ({len(rows)}):</b>\n\n"
             for i, row in enumerate(rows[:50], 1):  # Limit to 50 for message length
-                user_id, first_name, username, s, m, f, l, c, ps, cp = row
+                user_id, first_name, username, s, m, f, l, c, ps, cp, pin, v, con, loc, vn, doc = row
                 user_text = f"@{username}" if username else first_name
                 
                 # Format permissions - Only show what is enabled
@@ -1305,7 +1442,12 @@ class ModerationBot:
                 if c: perms.append("⌨️ Commands")
                 if ps: perms.append("⭐ Premium")
                 if cp: perms.append("📢 Channel")
-                if row[10] if len(row) > 10 else False: perms.append("📌 Pinned")
+                if pin: perms.append("📌 Pinned")
+                if v: perms.append("🎤 Voice")
+                if con: perms.append("👤 Contact")
+                if loc: perms.append("📍 Location")
+                if vn: perms.append("📹 Video Voice")
+                if doc: perms.append("📄 Document")
                 
                 perms_str = ", ".join(perms) if perms else "None"
                 text += f"{i}. {user_text} (<code>{user_id}</code>)\n   └ {perms_str}\n\n"
@@ -1633,15 +1775,55 @@ class ModerationBot:
                         logger.error(f"Failed to delete custom emoji: {e}")
                     return
         
-        # Check media blocking (skip for users with exemption)
+        # Check granular media blocking (voice, contact, location, video_note, document)
+        is_media_blocked = False
+        media_feature_name = ""
+        
+        if message.voice and settings.get('block_voice', False):
+            if not (exemptions and exemptions.get('exempt_voice', False)):
+                is_media_blocked = True
+                media_feature_name = "Voice messages"
+        
+        elif message.contact and settings.get('block_contacts', False):
+            if not (exemptions and exemptions.get('exempt_contacts', False)):
+                is_media_blocked = True
+                media_feature_name = "Contacts"
+        
+        elif (message.location or message.venue) and settings.get('block_location', False):
+            if not (exemptions and exemptions.get('exempt_location', False)):
+                is_media_blocked = True
+                media_feature_name = "Location"
+        
+        elif message.video_note and settings.get('block_video_notes', False):
+            if not (exemptions and exemptions.get('exempt_video_notes', False)):
+                is_media_blocked = True
+                media_feature_name = "Video voice messages"
+        
+        elif message.document and settings.get('block_documents', False):
+            if not (exemptions and exemptions.get('exempt_documents', False)):
+                is_media_blocked = True
+                media_feature_name = "Documents"
+        
+        if is_media_blocked:
+            try:
+                await message.delete()
+                await self.send_auto_delete_message(
+                    message,
+                    f"🚫 {media_feature_name} are not allowed in this group.",
+                    delete_after=60,
+                    parse_mode='HTML'
+                )
+            except:
+                pass
+            return
+
+        # Check general media blocking (skip for users with exemption)
         if settings['block_media']:
+            # For general media, we still include audio and animation, and photo/video
             if any([
                 message.photo,
                 message.video,
-                message.document,
                 message.audio,
-                message.voice,
-                message.video_note,
                 message.animation
             ]):
                 if exemptions and exemptions['exempt_media']:
