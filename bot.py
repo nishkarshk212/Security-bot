@@ -588,7 +588,7 @@ class ModerationBot:
             # Row 4: Channel Posts & Pinned Messages
             [
                 InlineKeyboardButton(
-                    f"{'✅' if settings['block_channel_posts'] else '❌'} 📢 Channel Posts",
+                    f"{'✅' if settings.get('block_channel_posts', False) else '❌'} 📢 Channel Posts",
                     callback_data="toggle_block_channel_posts"
                 ),
                 InlineKeyboardButton(
@@ -599,7 +599,7 @@ class ModerationBot:
             # Row 5: Bot Protection
             [
                 InlineKeyboardButton(
-                    f"{'✅' if settings['block_bots'] else '❌'} 🛡️ Bot Protection",
+                    f"{'✅' if settings.get('block_bots', False) else '❌'} 🛡️ Bot Protection",
                     callback_data="toggle_block_bots"
                 ),
             ],
@@ -674,10 +674,10 @@ class ModerationBot:
             f"↗️ Block Forwards: {status_emoji(settings['block_forwards'])}\n"
             f"🔗 Block Links: {status_emoji(settings['block_links'])}\n"
             f"⌨️ Block Commands: {status_emoji(settings['block_commands'])}\n"
-            f"⭐ Block Premium Stickers: {status_emoji(settings['block_premium_stickers'])}\n"
-            f"📢 Block Channel Posts: {status_emoji(settings['block_channel_posts'])}\n"
-            f"📌 Block Pinned Messages: {status_emoji(settings['block_pinned_messages'])}\n"
-            f"🛡️ Bot Protection: {status_emoji(settings['block_bots'])}\n\n"
+            f"⭐ Block Premium Stickers: {status_emoji(settings.get('block_premium_stickers', False))}\n"
+            f"📢 Block Channel Posts: {status_emoji(settings.get('block_channel_posts', False))}\n"
+            f"📌 Block Pinned Messages: {status_emoji(settings.get('block_pinned_messages', False))}\n"
+            f"🛡️ Bot Protection: {status_emoji(settings.get('block_bots', False))}\n\n"
             "Tap buttons above to toggle features.\n"
             "Use /free to exempt members from restrictions."
         )
