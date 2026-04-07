@@ -2075,41 +2075,48 @@ class ModerationBot:
             return
 
         # Check general media blocking (skip for users with exemption)
-        # Note: voice and video_note have their own separate blocking settings
+        # This handles photos, videos, audio, animations
+        # Voice, video_note, documents, contacts, location have their own separate settings
         if settings['block_media']:
-            # Debug logging for media detection
+            has_media = False
+            media_type = "Media"
+            
+            # Debug logging for all media types
             if message.photo:
                 logger.info(f"📸 Photo detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
+                has_media = True
+                media_type = "Photos"
             if message.video:
                 logger.info(f"🎥 Video detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
+                has_media = True
+                media_type = "Videos"
             if message.audio:
                 logger.info(f"🎵 Audio detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
+                has_media = True
+                media_type = "Audio"
             if message.animation:
                 logger.info(f"🎬 Animation/GIF detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
+                has_media = True
+                media_type = "GIFs"
             
-            # For general media, check photo, video, audio, animation
-            # Voice and video_note are handled separately
-            if any([
-                message.photo,
-                message.video,
-                message.audio,
-                message.animation
-            ]):
+            # Check if user has media exemption
+            if has_media:
                 if exemptions and exemptions.get('exempt_media', False):
                     logger.info(f"✅ User {user.id} exempt from media blocking")
                     return  # User is exempt
+                
                 try:
                     await message.delete()
-                    logger.info(f"✅ Deleted media message from user {user.id if user else 'unknown'} in {chat.id}")
+                    logger.info(f"✅ Deleted {media_type} message from user {user.id if user else 'unknown'} in {chat.id}")
                     await self.send_auto_delete_message(
                         message,
-                        f"📸 Media files are not allowed in this group.",
+                        f"📸 {media_type} are not allowed in this group.",
                         delete_after=60,
                         parse_mode='HTML'
                     )
                 except Exception as e:
-                    logger.error(f"❌ Failed to delete media message: {e}")
-                    print(f"❌ Error deleting media: {e}")
+                    logger.error(f"❌ Failed to delete {media_type} message: {e}")
+                    print(f"❌ Error deleting {media_type}: {e}")
                 return
         
         # Check pinned message service message blocking
@@ -2143,24 +2150,45 @@ class ModerationBot:
         
         # Check link blocking (skip for users with exemption)
         if settings['block_links']:
-            # Check both text and caption for links
-            text_to_check = message.text or message.caption
-            if text_to_check:
+            has_link = False
+            text_to_check = message.text or message.caption or ""
+            
+            # Check for URL entities in text/caption
+            entities_to_check = list(message.entities or []) + list(message.caption_entities or [])
+            for entity in entities_to_check:
+                if entity.type == 'url':
+                    has_link = True
+                    logger.info(f"🔗 Link detected (url entity) from user {user.id if user else 'unknown'}: {text_to_check[entity.offset:entity.offset + entity.length]}")
+                    break
+                elif entity.type == 'text_link' and entity.url:
+                    has_link = True
+                    logger.info(f"🔗 Link detected (text_link entity) from user {user.id if user else 'unknown'}: {entity.url}")
+                    break
+            
+            # Also check with regex as fallback
+            if not has_link and text_to_check:
                 url_pattern = r'(https?://[^\s]+)|(www\.[^\s]+)|(t\.me/[^\s]+)'
                 if re.search(url_pattern, text_to_check):
-                    if exemptions and exemptions['exempt_links']:
-                        return  # User is exempt
-                    try:
-                        await message.delete()
-                        await self.send_auto_delete_message(
-                            message,
-                            f"🔗 Links are not allowed in this group.",
-                            delete_after=60,
-                            parse_mode='HTML'
-                        )
-                    except Exception as e:
-                        logger.error(f"❌ Failed to delete link message: {e}")
-                    return
+                    has_link = True
+                    logger.info(f"🔗 Link detected (regex pattern) from user {user.id if user else 'unknown'}")
+            
+            if has_link:
+                if exemptions and exemptions.get('exempt_links', False):
+                    logger.info(f"✅ User {user.id} exempt from link blocking")
+                    return  # User is exempt
+                try:
+                    await message.delete()
+                    logger.info(f"✅ Deleted link message from user {user.id if user else 'unknown'} in {chat.id}")
+                    await self.send_auto_delete_message(
+                        message,
+                        f"🔗 Links are not allowed in this group.",
+                        delete_after=60,
+                        parse_mode='HTML'
+                    )
+                except Exception as e:
+                    logger.error(f"❌ Failed to delete link message: {e}")
+                    print(f"❌ Error deleting link: {e}")
+                return
         
         return
     
