@@ -2075,20 +2075,32 @@ class ModerationBot:
             return
 
         # Check general media blocking (skip for users with exemption)
+        # Note: voice and video_note have their own separate blocking settings
         if settings['block_media']:
-            # For general media, include photo, video, audio, animation, voice, video_note
+            # Debug logging for media detection
+            if message.photo:
+                logger.info(f"📸 Photo detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
+            if message.video:
+                logger.info(f"🎥 Video detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
+            if message.audio:
+                logger.info(f"🎵 Audio detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
+            if message.animation:
+                logger.info(f"🎬 Animation/GIF detected from user {user.id if user else 'unknown'} in {chat.id} - block_media: {settings.get('block_media', False)}")
+            
+            # For general media, check photo, video, audio, animation
+            # Voice and video_note are handled separately
             if any([
                 message.photo,
                 message.video,
                 message.audio,
-                message.animation,
-                message.voice,
-                message.video_note
+                message.animation
             ]):
                 if exemptions and exemptions.get('exempt_media', False):
+                    logger.info(f"✅ User {user.id} exempt from media blocking")
                     return  # User is exempt
                 try:
                     await message.delete()
+                    logger.info(f"✅ Deleted media message from user {user.id if user else 'unknown'} in {chat.id}")
                     await self.send_auto_delete_message(
                         message,
                         f"📸 Media files are not allowed in this group.",
@@ -2097,6 +2109,7 @@ class ModerationBot:
                     )
                 except Exception as e:
                     logger.error(f"❌ Failed to delete media message: {e}")
+                    print(f"❌ Error deleting media: {e}")
                 return
         
         # Check pinned message service message blocking
