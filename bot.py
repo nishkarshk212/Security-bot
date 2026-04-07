@@ -2076,14 +2076,16 @@ class ModerationBot:
 
         # Check general media blocking (skip for users with exemption)
         if settings['block_media']:
-            # For general media, we still include audio and animation, and photo/video
+            # For general media, include photo, video, audio, animation, voice, video_note
             if any([
                 message.photo,
                 message.video,
                 message.audio,
-                message.animation
+                message.animation,
+                message.voice,
+                message.video_note
             ]):
-                if exemptions and exemptions['exempt_media']:
+                if exemptions and exemptions.get('exempt_media', False):
                     return  # User is exempt
                 try:
                     await message.delete()
@@ -2093,8 +2095,8 @@ class ModerationBot:
                         delete_after=60,
                         parse_mode='HTML'
                     )
-                except:
-                    pass
+                except Exception as e:
+                    logger.error(f"❌ Failed to delete media message: {e}")
                 return
         
         # Check pinned message service message blocking
@@ -2111,7 +2113,7 @@ class ModerationBot:
             return
 
         # Check forward blocking (skip for users with exemption)
-        if settings['block_forwards'] and (message.forward_date or message.forward_origin):
+        if settings['block_forwards'] and message.forward_origin:
             if exemptions and exemptions['exempt_forwards']:
                 return  # User is exempt
             try:
@@ -2122,27 +2124,30 @@ class ModerationBot:
                     delete_after=60,
                     parse_mode='HTML'
                 )
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"❌ Failed to delete forwarded message: {e}")
             return
         
         # Check link blocking (skip for users with exemption)
-        if settings['block_links'] and message.text:
-            url_pattern = r'(https?://[^\s]+)|(www\.[^\s]+)|(t\.me/[^\s]+)'
-            if re.search(url_pattern, message.text):
-                if exemptions and exemptions['exempt_links']:
-                    return  # User is exempt
-                try:
-                    await message.delete()
-                    await self.send_auto_delete_message(
-                        message,
-                        f"🔗 Links are not allowed in this group.",
-                        delete_after=60,
-                        parse_mode='HTML'
-                    )
-                except:
-                    pass
-                return
+        if settings['block_links']:
+            # Check both text and caption for links
+            text_to_check = message.text or message.caption
+            if text_to_check:
+                url_pattern = r'(https?://[^\s]+)|(www\.[^\s]+)|(t\.me/[^\s]+)'
+                if re.search(url_pattern, text_to_check):
+                    if exemptions and exemptions['exempt_links']:
+                        return  # User is exempt
+                    try:
+                        await message.delete()
+                        await self.send_auto_delete_message(
+                            message,
+                            f"🔗 Links are not allowed in this group.",
+                            delete_after=60,
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Failed to delete link message: {e}")
+                    return
         
         return
     
