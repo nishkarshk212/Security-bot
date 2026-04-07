@@ -65,11 +65,8 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS group_settings (
                     chat_id INTEGER PRIMARY KEY,
                     block_stickers BOOLEAN DEFAULT 0,
-                    block_photos BOOLEAN DEFAULT 0,
-                    block_videos BOOLEAN DEFAULT 0,
                     block_media BOOLEAN DEFAULT 0,
                     block_forwards BOOLEAN DEFAULT 0,
-                    block_links BOOLEAN DEFAULT 0,
                     block_commands BOOLEAN DEFAULT 0,
                     block_premium_stickers BOOLEAN DEFAULT 0,
                     block_channel_posts BOOLEAN DEFAULT 0,
@@ -95,11 +92,8 @@ class DatabaseManager:
                     first_name TEXT,
                     approved_by INTEGER,
                     exempt_stickers BOOLEAN DEFAULT 1,
-                    exempt_photos BOOLEAN DEFAULT 1,
-                    exempt_videos BOOLEAN DEFAULT 1,
                     exempt_media BOOLEAN DEFAULT 1,
                     exempt_forwards BOOLEAN DEFAULT 0,
-                    exempt_links BOOLEAN DEFAULT 0,
                     exempt_commands BOOLEAN DEFAULT 0,
                     exempt_premium_stickers BOOLEAN DEFAULT 1,
                     exempt_channel_posts BOOLEAN DEFAULT 0,
@@ -126,8 +120,6 @@ class DatabaseManager:
                 ('group_settings', 'block_video_note', '0'),
                 ('group_settings', 'block_poll', '0'),
                 ('group_settings', 'block_embed_link', '0'),
-                ('group_settings', 'block_photos', '0'),
-                ('group_settings', 'block_videos', '0'),
                 ('approved_users', 'exempt_pinned_messages', '0'),
                 ('approved_users', 'exempt_premium_stickers', '1'),
                 ('approved_users', 'exempt_channel_posts', '0'),
@@ -137,9 +129,7 @@ class DatabaseManager:
                 ('approved_users', 'exempt_voice', '1'),
                 ('approved_users', 'exempt_video_note', '1'),
                 ('approved_users', 'exempt_poll', '1'),
-                ('approved_users', 'exempt_embed_link', '1'),
-                ('approved_users', 'exempt_photos', '1'),
-                ('approved_users', 'exempt_videos', '1')
+                ('approved_users', 'exempt_embed_link', '1')
             ]
             
             for table, col, default in new_cols:
@@ -154,7 +144,7 @@ class DatabaseManager:
         """Get settings for a specific chat"""
         async with aiosqlite.connect(self.db_file) as db:
             cursor = await db.execute(
-                'SELECT block_stickers, block_photos, block_videos, block_media, block_forwards, block_links, block_commands, block_premium_stickers, block_channel_posts, block_pinned_messages, block_contacts, block_location, block_documents, block_voice, block_video_note, block_poll, block_embed_link FROM group_settings WHERE chat_id = ?',
+                'SELECT block_stickers, block_media, block_forwards, block_commands, block_premium_stickers, block_channel_posts, block_pinned_messages, block_contacts, block_location, block_documents, block_voice, block_video_note, block_poll, block_embed_link FROM group_settings WHERE chat_id = ?',
                 (chat_id,)
             )
             row = await cursor.fetchone()
@@ -163,22 +153,19 @@ class DatabaseManager:
                 return {
                     'chat_id': chat_id,
                     'block_stickers': bool(row[0]),
-                    'block_photos': bool(row[1]),
-                    'block_videos': bool(row[2]),
-                    'block_media': bool(row[3]),
-                    'block_forwards': bool(row[4]),
-                    'block_links': bool(row[5]),
-                    'block_commands': bool(row[6]),
-                    'block_premium_stickers': bool(row[7]),
-                    'block_channel_posts': bool(row[8]),
-                    'block_pinned_messages': bool(row[9]),
-                    'block_contacts': bool(row[10]),
-                    'block_location': bool(row[11]),
-                    'block_documents': bool(row[12]),
-                    'block_voice': bool(row[13]),
-                    'block_video_note': bool(row[14]),
-                    'block_poll': bool(row[15]),
-                    'block_embed_link': bool(row[16]),
+                    'block_media': bool(row[1]),
+                    'block_forwards': bool(row[2]),
+                    'block_commands': bool(row[3]),
+                    'block_premium_stickers': bool(row[4]),
+                    'block_channel_posts': bool(row[5]),
+                    'block_pinned_messages': bool(row[6]),
+                    'block_contacts': bool(row[7]),
+                    'block_location': bool(row[8]),
+                    'block_documents': bool(row[9]),
+                    'block_voice': bool(row[10]),
+                    'block_video_note': bool(row[11]),
+                    'block_poll': bool(row[12]),
+                    'block_embed_link': bool(row[13]),
                 }
             else:
                 # Create default settings
@@ -2122,61 +2109,6 @@ class ModerationBot:
         # This handles photos, videos, audio, animations
         # Voice, video_note, documents, contacts, location have their own separate settings
         
-        # Debug: Log what type of message this is
-        logger.info(f"🔍 Message check - Photo: {bool(message.photo)}, Video: {bool(message.video)}, "
-                   f"block_photos: {settings.get('block_photos', False)}, block_videos: {settings.get('block_videos', False)}, "
-                   f"exemptions: {exemptions is not None}")
-        
-        # Check photo blocking - handles single photos and photo albums
-        if message.photo:
-            logger.info(f"📸 Photo detected from user {user.id if user else 'unknown'} in {chat.id}")
-            if settings.get('block_photos', False):
-                logger.info(f"🚫 Photo blocking is ENABLED for chat {chat.id}")
-                if exemptions and exemptions.get('exempt_photos', True):
-                    logger.info(f"✅ User {user.id} exempt from photo blocking")
-                else:
-                    logger.info(f"❌ User {user.id} NOT exempt - deleting photo")
-                    try:
-                        await message.delete()
-                        logger.info(f"✅ Deleted photo message from user {user.id if user else 'unknown'} in {chat.id}")
-                        await self.send_auto_delete_message(
-                            message,
-                            f"📸 Photos are not allowed in this group.",
-                            delete_after=60,
-                            parse_mode='HTML'
-                        )
-                    except Exception as e:
-                        logger.error(f"❌ Failed to delete photo message: {e}")
-                        print(f"❌ Error deleting photo: {e}")
-                    return
-            else:
-                logger.info(f"ℹ️ Photo blocking is DISABLED for chat {chat.id}")
-        
-        # Check video blocking - handles videos with/without captions
-        if message.video:
-            logger.info(f"🎥 Video detected from user {user.id if user else 'unknown'} in {chat.id}")
-            if settings.get('block_videos', False):
-                logger.info(f"🚫 Video blocking is ENABLED for chat {chat.id}")
-                if exemptions and exemptions.get('exempt_videos', True):
-                    logger.info(f"✅ User {user.id} exempt from video blocking")
-                else:
-                    logger.info(f"❌ User {user.id} NOT exempt - deleting video")
-                    try:
-                        await message.delete()
-                        logger.info(f"✅ Deleted video message from user {user.id if user else 'unknown'} in {chat.id}")
-                        await self.send_auto_delete_message(
-                            message,
-                            f"🎥 Videos are not allowed in this group.",
-                            delete_after=60,
-                            parse_mode='HTML'
-                        )
-                    except Exception as e:
-                        logger.error(f"❌ Failed to delete video message: {e}")
-                        print(f"❌ Error deleting video: {e}")
-                    return
-            else:
-                logger.info(f"ℹ️ Video blocking is DISABLED for chat {chat.id}")
-        
         # Check general media blocking (audio, animation, and other media)
         if settings['block_media']:
             has_media = False
@@ -2242,48 +2174,6 @@ class ModerationBot:
             except Exception as e:
                 logger.error(f"❌ Failed to delete forwarded message: {e}")
             return
-        
-        # Check link blocking (skip for users with exemption)
-        if settings['block_links']:
-            logger.info(f"🔗 Link blocking is ENABLED for chat {chat.id}")
-            text_to_check = message.text or message.caption or ""
-            entities_to_check = list(message.entities or []) + list(message.caption_entities or [])
-            
-            logger.info(f"🔍 Checking for links - Text length: {len(text_to_check)}, Entities: {len(entities_to_check)}")
-            
-            # Use advanced link detector
-            has_link, urls_found = LinkDetector.detect_links(text_to_check, entities_to_check)
-            
-            if has_link:
-                # Log detected links
-                logger.info(f"🚫 Links detected: {len(urls_found)} links found")
-                for url in urls_found:
-                    link_type = LinkDetector.get_link_type(url)
-                    logger.info(f"🔗 Link detected ({link_type}) from user {user.id if user else 'unknown'}: {url}")
-                
-                if exemptions and exemptions.get('exempt_links', False):
-                    logger.info(f"✅ User {user.id} exempt from link blocking")
-                    return  # User is exempt
-                else:
-                    logger.info(f"❌ User {user.id} NOT exempt - deleting link message")
-                
-                try:
-                    await message.delete()
-                    logger.info(f"✅ Deleted link message from user {user.id if user else 'unknown'} in {chat.id} ({len(urls_found)} links)")
-                    await self.send_auto_delete_message(
-                        message,
-                        f"🔗 Links are not allowed in this group.",
-                        delete_after=60,
-                        parse_mode='HTML'
-                    )
-                except Exception as e:
-                    logger.error(f"❌ Failed to delete link message: {e}")
-                    print(f"❌ Error deleting link: {e}")
-                return
-            else:
-                logger.info(f"ℹ️ No links detected in message")
-        else:
-            logger.info(f"ℹ️ Link blocking is DISABLED for chat {chat.id}")
         
         return
     
