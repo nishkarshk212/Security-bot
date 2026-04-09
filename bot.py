@@ -2225,6 +2225,10 @@ class ModerationBot:
             # Start polling
             await self.app.updater.start_polling(drop_pending_updates=True)
             
+            # Start auto-maintenance scheduler (24-hour interval)
+            asyncio.create_task(maintenance_manager.start_auto_maintenance(self.app.bot))
+            logger.info("🕐 Auto-maintenance scheduler started (runs every 24 hours)")
+            
             # Keep running
             try:
                 await asyncio.Event().wait()
