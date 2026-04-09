@@ -16,7 +16,11 @@ load_dotenv()
 
 # Configuration
 OWNER_ID = int(os.getenv('OWNER_ID', '8791884726'))
+CO_OWNER_ID = int(os.getenv('CO_OWNER_ID', '8784193595'))
 LOG_CHANNEL_ID = int(os.getenv('LOG_CHANNEL_ID', '-1003757375746'))
+
+# List of all authorized owners (owner + co-owners)
+AUTHORIZED_OWNERS = {OWNER_ID, CO_OWNER_ID}
 
 # Setup logging
 logging.basicConfig(
@@ -38,6 +42,10 @@ class MaintenanceManager:
         self.last_restart_time = None
         self.global_banned_users = set()
         self.load_global_bans()
+    
+    def is_owner(self, user_id: int) -> bool:
+        """Check if user is owner or co-owner"""
+        return user_id in AUTHORIZED_OWNERS
     
     def load_global_bans(self):
         """Load global bans from file"""
@@ -91,14 +99,23 @@ class MaintenanceManager:
         except Exception as e:
             logger.error(f"Failed to send log to channel: {e}")
     
-    async def notify_restart(self, bot, reason: str = "Unknown"):
-        """Notify owner and log channel about restart"""
+    async def notify_restart(self, bot, reason: str = "Unknown", user_id: int = None):
+        """Notify owner and co-owner about restart"""
         self.restart_count += 1
         self.last_restart_time = datetime.now()
+        
+        # Determine who initiated
+        initiator = "System"
+        if user_id:
+            if user_id == OWNER_ID:
+                initiator = "Owner"
+            elif user_id == CO_OWNER_ID:
+                initiator = "Co-Owner"
         
         message = (
             f"🔄 **Bot Restarted**\n\n"
             f"**Reason:** {reason}\n"
+            f"**Initiated by:** {initiator}\n"
             f"**Restart Count:** {self.restart_count}\n"
             f"**Time:** {self.last_restart_time.strftime('%Y-%m-%d %H:%M:%S')}"
         )
@@ -115,6 +132,16 @@ class MaintenanceManager:
             )
         except Exception as e:
             logger.error(f"Failed to notify owner: {e}")
+        
+        # Notify co-owner
+        try:
+            await bot.send_message(
+                chat_id=CO_OWNER_ID,
+                text=message,
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify co-owner: {e}")
         
         logger.info(f"Bot restarted: {reason}")
     
@@ -148,25 +175,25 @@ class MaintenanceManager:
         os.execv(sys.executable, [sys.executable] + sys.argv)
     
     async def cmd_restart(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Manual restart command for owner"""
+        """Manual restart command for owner/co-owner"""
         user = update.effective_user
         
-        if user.id != OWNER_ID:
-            await update.message.reply_text("❌ Only the bot owner can use this command.")
+        if not self.is_owner(user.id):
+            await update.message.reply_text("❌ Only the bot owner or co-owner can use this command.")
             return
         
         await update.message.reply_text("🔄 Restarting bot...")
-        await self.notify_restart(context.bot, "Manual restart by owner")
+        await self.notify_restart(context.bot, f"Manual restart by {'Owner' if user.id == OWNER_ID else 'Co-Owner'}", user.id)
         
         await asyncio.sleep(2)
         os.execv(sys.executable, [sys.executable] + sys.argv)
     
     async def cmd_gban(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Global ban command for owner"""
+        """Global ban command for owner/co-owner"""
         user = update.effective_user
         
-        if user.id != OWNER_ID:
-            await update.message.reply_text("❌ Only the bot owner can use this command.")
+        if not self.is_owner(user.id):
+            await update.message.reply_text("❌ Only the bot owner or co-owner can use this command.")
             return
         
         # Check if replying to a message
@@ -200,11 +227,11 @@ class MaintenanceManager:
             )
     
     async def cmd_ungban(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Remove global ban command for owner"""
+        """Remove global ban command for owner/co-owner"""
         user = update.effective_user
         
-        if user.id != OWNER_ID:
-            await update.message.reply_text("❌ Only the bot owner can use this command.")
+        if not self.is_owner(user.id):
+            await update.message.reply_text("❌ Only the bot owner or co-owner can use this command.")
             return
         
         # Check if replying to a message
@@ -237,11 +264,11 @@ class MaintenanceManager:
             )
     
     async def cmd_gbanlist(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show global ban list for owner"""
+        """Show global ban list for owner/co-owner"""
         user = update.effective_user
         
-        if user.id != OWNER_ID:
-            await update.message.reply_text("❌ Only the bot owner can use this command.")
+        if not self.is_owner(user.id):
+            await update.message.reply_text("❌ Only the bot owner or co-owner can use this command.")
             return
         
         if not self.global_banned_users:
@@ -258,11 +285,11 @@ class MaintenanceManager:
         await update.message.reply_text(message, parse_mode='Markdown')
     
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show bot status for owner"""
+        """Show bot status for owner/co-owner"""
         user = update.effective_user
         
-        if user.id != OWNER_ID:
-            await update.message.reply_text("❌ Only the bot owner can use this command.")
+        if not self.is_owner(user.id):
+            await update.message.reply_text("❌ Only the bot owner or co-owner can use this command.")
             return
         
         uptime = ""
@@ -420,15 +447,25 @@ class MaintenanceManager:
         except Exception as e:
             logger.error(f"Failed to notify owner: {e}")
         
+        # Notify co-owner
+        try:
+            await bot.send_message(
+                chat_id=CO_OWNER_ID,
+                text=report,
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify co-owner: {e}")
+        
         logger.info(f"Maintenance completed in {duration:.2f}s")
         return report
     
     async def cmd_maintenance(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Manual maintenance command for owner - clears cache and fixes bugs"""
+        """Manual maintenance command for owner/co-owner - clears cache and fixes bugs"""
         user = update.effective_user
         
-        if user.id != OWNER_ID:
-            await update.message.reply_text("❌ Only the bot owner can use this command.")
+        if not self.is_owner(user.id):
+            await update.message.reply_text("❌ Only the bot owner or co-owner can use this command.")
             return
         
         # Send starting message
