@@ -24,8 +24,9 @@ from telegram.ext import (
 import aiosqlite
 from font import Fonts
 from config import START_IMG_URL
-from maintenance import maintenance_manager, OWNER_ID, LOG_CHANNEL_ID
+from maintenance import maintenance_manager, OWNER_ID, CO_OWNER_ID, LOG_CHANNEL_ID
 from link_detector import LinkDetector
+from mongodb_manager import mongodb_manager
 import sys
 
 # Load environment variables
@@ -197,7 +198,8 @@ class DatabaseManager:
             await db.commit()
     
     async def add_approved_user(self, chat_id, user_id, username, first_name, approved_by):
-        """Add user to approved list with default exemptions"""
+        """Add user to approved list with default exemptions (SQLite + MongoDB)"""
+        # Save to SQLite
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
                 '''INSERT OR REPLACE INTO approved_users 
@@ -209,9 +211,32 @@ class DatabaseManager:
                 (chat_id, user_id, username, first_name, approved_by)
             )
             await db.commit()
+        
+        # Also save to MongoDB
+        exemptions = {
+            'exempt_stickers': True,
+            'exempt_media': True,
+            'exempt_forwards': False,
+            'exempt_commands': False,
+            'exempt_premium_stickers': True,
+            'exempt_channel_posts': False,
+            'exempt_pinned_messages': False,
+            'exempt_contacts': True,
+            'exempt_location': True,
+            'exempt_documents': True,
+            'exempt_voice': True,
+            'exempt_video_note': True,
+            'exempt_poll': True,
+            'exempt_embed_link': True,
+            'exempt_links': False
+        }
+        await mongodb_manager.add_freed_member(
+            chat_id, user_id, username, first_name, approved_by, exemptions
+        )
     
     async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, exempt_links):
-        """Update user's exemption settings"""
+        """Update user's exemption settings (SQLite + MongoDB)"""
+        # Update SQLite
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
                 '''UPDATE approved_users 
@@ -223,6 +248,26 @@ class DatabaseManager:
                 (exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, exempt_links, chat_id, user_id)
             )
             await db.commit()
+        
+        # Also update MongoDB
+        exemptions = {
+            'exempt_stickers': bool(exempt_stickers),
+            'exempt_media': bool(exempt_media),
+            'exempt_forwards': bool(exempt_forwards),
+            'exempt_commands': bool(exempt_commands),
+            'exempt_premium_stickers': bool(exempt_premium_stickers),
+            'exempt_channel_posts': bool(exempt_channel_posts),
+            'exempt_pinned_messages': bool(exempt_pinned_messages),
+            'exempt_contacts': bool(exempt_contacts),
+            'exempt_location': bool(exempt_location),
+            'exempt_documents': bool(exempt_documents),
+            'exempt_voice': bool(exempt_voice),
+            'exempt_video_note': bool(exempt_video_note),
+            'exempt_poll': bool(exempt_poll),
+            'exempt_embed_link': bool(exempt_embed_link),
+            'exempt_links': bool(exempt_links)
+        }
+        await mongodb_manager.update_exemptions(chat_id, user_id, exemptions)
     
     async def get_user_exemptions(self, chat_id, user_id):
         """Get user's exemption settings"""
@@ -254,13 +299,17 @@ class DatabaseManager:
             return None
     
     async def remove_approved_user(self, chat_id, user_id):
-        """Remove user from approved list"""
+        """Remove user from approved list (SQLite + MongoDB)"""
+        # Remove from SQLite
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
                 'DELETE FROM approved_users WHERE chat_id = ? AND user_id = ?',
                 (chat_id, user_id)
             )
             await db.commit()
+        
+        # Also remove from MongoDB
+        await mongodb_manager.remove_freed_member(chat_id, user_id)
     
     async def is_user_approved(self, chat_id, user_id):
         """Check if user is approved"""
@@ -338,7 +387,18 @@ class ModerationBot:
     
     async def initialize(self):
         """Initialize the bot application"""
+        # Initialize SQLite
         await self.db.initialize()
+        
+        # Initialize MongoDB
+        if mongodb_manager.connect():
+            logger.info("✅ MongoDB initialized successfully")
+            # Migrate data from SQLite to MongoDB if needed
+            migration_done = await mongodb_manager.migrate_from_sqlite(self.db)
+            if migration_done:
+                logger.info("✅ Data migration from SQLite to MongoDB complete")
+        else:
+            logger.warning("⚠️ MongoDB not available, using SQLite only")
         
         self.app = Application.builder().token(BOT_TOKEN).build()
         
