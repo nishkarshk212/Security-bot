@@ -146,7 +146,13 @@ class DatabaseManager:
             await db.commit()
     
     async def get_settings(self, chat_id):
-        """Get settings for a specific chat"""
+        """Get settings for a specific chat with caching"""
+        # Check cache first
+        cache_key = f"settings_{chat_id}"
+        if hasattr(self, '_settings_cache') and cache_key in self._settings_cache:
+            return self._settings_cache[cache_key]
+        
+        # Fetch from database
         async with aiosqlite.connect(self.db_file) as db:
             cursor = await db.execute(
                 'SELECT block_stickers, block_media, block_forwards, block_commands, block_premium_stickers, block_channel_posts, block_pinned_messages, block_contacts, block_location, block_documents, block_voice, block_video_note, block_poll, block_embed_link, block_links FROM group_settings WHERE chat_id = ?',
@@ -155,7 +161,7 @@ class DatabaseManager:
             row = await cursor.fetchone()
             
             if row:
-                return {
+                settings = {
                     'chat_id': chat_id,
                     'block_stickers': bool(row[0]),
                     'block_media': bool(row[1]),
@@ -173,6 +179,10 @@ class DatabaseManager:
                     'block_embed_link': bool(row[13]),
                     'block_links': bool(row[14]),
                 }
+                # Cache the result
+                if hasattr(self, '_settings_cache'):
+                    self._settings_cache[cache_key] = settings
+                return settings
             else:
                 # Create default settings
                 await self.initialize_settings(chat_id)
@@ -188,7 +198,12 @@ class DatabaseManager:
             await db.commit()
     
     async def update_setting(self, chat_id, setting_name, value):
-        """Update a specific setting"""
+        """Update a specific setting and clear cache"""
+        # Clear cache for this chat
+        cache_key = f"settings_{chat_id}"
+        if hasattr(self, '_settings_cache') and cache_key in self._settings_cache:
+            del self._settings_cache[cache_key]
+        
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
                 f'''UPDATE group_settings SET {setting_name} = ?, updated_at = CURRENT_TIMESTAMP 
@@ -235,7 +250,12 @@ class DatabaseManager:
         )
     
     async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, exempt_links):
-        """Update user's exemption settings (SQLite + MongoDB)"""
+        """Update user's exemption settings (SQLite + MongoDB) and clear cache"""
+        # Clear cache for this user
+        cache_key = f"user_{chat_id}_{user_id}"
+        if hasattr(self, '_user_cache') and cache_key in self._user_cache:
+            del self._user_cache[cache_key]
+        
         # Update SQLite
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
@@ -270,7 +290,13 @@ class DatabaseManager:
         await mongodb_manager.update_exemptions(chat_id, user_id, exemptions)
     
     async def get_user_exemptions(self, chat_id, user_id):
-        """Get user's exemption settings"""
+        """Get user's exemption settings with caching"""
+        # Check cache first
+        cache_key = f"user_{chat_id}_{user_id}"
+        if hasattr(self, '_user_cache') and cache_key in self._user_cache:
+            return self._user_cache[cache_key]
+        
+        # Fetch from database
         async with aiosqlite.connect(self.db_file) as db:
             cursor = await db.execute(
                 'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, exempt_links FROM approved_users WHERE chat_id = ? AND user_id = ?',
@@ -279,7 +305,7 @@ class DatabaseManager:
             row = await cursor.fetchone()
             
             if row:
-                return {
+                exemptions = {
                     'exempt_stickers': bool(row[0]),
                     'exempt_media': bool(row[1]),
                     'exempt_forwards': bool(row[2]),
@@ -296,10 +322,19 @@ class DatabaseManager:
                     'exempt_embed_link': bool(row[13]),
                     'exempt_links': bool(row[14]),
                 }
+                # Cache the result
+                if hasattr(self, '_user_cache'):
+                    self._user_cache[cache_key] = exemptions
+                return exemptions
             return None
     
     async def remove_approved_user(self, chat_id, user_id):
-        """Remove user from approved list (SQLite + MongoDB)"""
+        """Remove user from approved list (SQLite + MongoDB) and clear cache"""
+        # Clear cache for this user
+        cache_key = f"user_{chat_id}_{user_id}"
+        if hasattr(self, '_user_cache') and cache_key in self._user_cache:
+            del self._user_cache[cache_key]
+        
         # Remove from SQLite
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
@@ -386,24 +421,51 @@ class ModerationBot:
             pass
     
     async def initialize(self):
-        """Initialize the bot application"""
+        """Initialize the bot application with optimizations"""
         # Initialize SQLite
         await self.db.initialize()
         
-        # Initialize MongoDB
-        if mongodb_manager.connect():
+        # Initialize in-memory cache for faster lookups
+        self._settings_cache = {}
+        self._user_cache = {}
+        
+        # Initialize MongoDB (non-blocking)
+        if mongodb_manager.connected:
+            logger.info("✅ MongoDB already connected")
+        elif mongodb_manager.connect():
             logger.info("✅ MongoDB initialized successfully")
-            # Migrate data from SQLite to MongoDB if needed
-            migration_done = await mongodb_manager.migrate_from_sqlite(self.db)
-            if migration_done:
-                logger.info("✅ Data migration from SQLite to MongoDB complete")
+            # Migrate data from SQLite to MongoDB if needed (async)
+            asyncio.create_task(self._migrate_to_mongodb())
         else:
             logger.warning("⚠️ MongoDB not available, using SQLite only")
         
-        self.app = Application.builder().token(BOT_TOKEN).build()
+        # Optimized Application builder with performance settings
+        self.app = (
+            Application.builder()
+            .token(BOT_TOKEN)
+            .connection_pool_size(16)  # Increase connection pool
+            .connect_timeout(10.0)  # Faster connection timeout
+            .read_timeout(10.0)  # Faster read timeout
+            .write_timeout(10.0)  # Faster write timeout
+            .pool_timeout(10.0)  # Faster pool timeout
+            .get_updates_connection_pool_size(8)
+            .get_updates_read_timeout(10.0)
+            .get_updates_write_timeout(10.0)
+            .get_updates_connect_timeout(10.0)
+            .build()
+        )
         
         # Add handlers
         self._add_handlers()
+    
+    async def _migrate_to_mongodb(self):
+        """Migrate data from SQLite to MongoDB in background"""
+        try:
+            migration_done = await mongodb_manager.migrate_from_sqlite(self.db)
+            if migration_done:
+                logger.info("✅ Data migration from SQLite to MongoDB complete")
+        except Exception as e:
+            logger.error(f"❌ Migration error: {e}")
     
     def _add_handlers(self):
         """Add all command and message handlers"""
