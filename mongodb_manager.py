@@ -3,6 +3,7 @@ MongoDB Manager - Handles freed members and permissions storage
 """
 import os
 import logging
+import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -123,7 +124,8 @@ class MongoDBManager:
             }
             
             # Upsert: insert or update
-            result = self.freed_members.update_one(
+            result = await asyncio.to_thread(
+                self.freed_members.update_one,
                 {'chat_id': chat_id, 'user_id': user_id},
                 {'$set': member_data},
                 upsert=True
@@ -145,10 +147,10 @@ class MongoDBManager:
             return None
         
         try:
-            member = self.freed_members.find_one({
-                'chat_id': chat_id,
-                'user_id': user_id
-            })
+            member = await asyncio.to_thread(
+                self.freed_members.find_one,
+                {'chat_id': chat_id, 'user_id': user_id}
+            )
             
             return member
             
@@ -165,7 +167,8 @@ class MongoDBManager:
             return False
         
         try:
-            result = self.freed_members.update_one(
+            result = await asyncio.to_thread(
+                self.freed_members.update_one,
                 {'chat_id': chat_id, 'user_id': user_id},
                 {
                     '$set': {

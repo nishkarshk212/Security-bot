@@ -58,6 +58,8 @@ class DatabaseManager:
     
     def __init__(self, db_file):
         self.db_file = db_file
+        self._settings_cache = {}
+        self._user_cache = {}
     
     async def initialize(self):
         """Initialize database and create tables if they don't exist"""
@@ -211,175 +213,6 @@ class DatabaseManager:
                 (value, chat_id)
             )
             await db.commit()
-    
-    async def add_approved_user(self, chat_id, user_id, username, first_name, approved_by):
-        """Add user to approved list with default exemptions (SQLite + MongoDB)"""
-        # Save to SQLite
-        async with aiosqlite.connect(self.db_file) as db:
-            await db.execute(
-                '''INSERT OR REPLACE INTO approved_users 
-                   (chat_id, user_id, username, first_name, approved_by, 
-                    exempt_stickers, exempt_media, exempt_forwards, exempt_commands, 
-                    exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, 
-                    exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, exempt_links, approved_at) 
-                   VALUES (?, ?, ?, ?, ?, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, CURRENT_TIMESTAMP)''',
-                (chat_id, user_id, username, first_name, approved_by)
-            )
-            await db.commit()
-        
-        # Also save to MongoDB
-        exemptions = {
-            'exempt_stickers': True,
-            'exempt_media': True,
-            'exempt_forwards': False,
-            'exempt_commands': False,
-            'exempt_premium_stickers': True,
-            'exempt_channel_posts': False,
-            'exempt_pinned_messages': False,
-            'exempt_contacts': True,
-            'exempt_location': True,
-            'exempt_documents': True,
-            'exempt_voice': True,
-            'exempt_video_note': True,
-            'exempt_poll': True,
-            'exempt_embed_link': True,
-            'exempt_links': False
-        }
-        await mongodb_manager.add_freed_member(
-            chat_id, user_id, username, first_name, approved_by, exemptions
-        )
-    
-    async def update_user_exemptions(self, chat_id, user_id, exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, exempt_links):
-        """Update user's exemption settings (SQLite + MongoDB) and clear cache"""
-        # Clear cache for this user
-        cache_key = f"user_{chat_id}_{user_id}"
-        if hasattr(self, '_user_cache') and cache_key in self._user_cache:
-            del self._user_cache[cache_key]
-        
-        # Update SQLite
-        async with aiosqlite.connect(self.db_file) as db:
-            await db.execute(
-                '''UPDATE approved_users 
-                   SET exempt_stickers = ?, exempt_media = ?,
-                       exempt_forwards = ?, exempt_commands = ?,
-                       exempt_premium_stickers = ?, exempt_channel_posts = ?, exempt_pinned_messages = ?,
-                       exempt_contacts = ?, exempt_location = ?, exempt_documents = ?, exempt_voice = ?, exempt_video_note = ?, exempt_poll = ?, exempt_embed_link = ?, exempt_links = ?
-                   WHERE chat_id = ? AND user_id = ?''',
-                (exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, exempt_links, chat_id, user_id)
-            )
-            await db.commit()
-        
-        # Also update MongoDB
-        exemptions = {
-            'exempt_stickers': bool(exempt_stickers),
-            'exempt_media': bool(exempt_media),
-            'exempt_forwards': bool(exempt_forwards),
-            'exempt_commands': bool(exempt_commands),
-            'exempt_premium_stickers': bool(exempt_premium_stickers),
-            'exempt_channel_posts': bool(exempt_channel_posts),
-            'exempt_pinned_messages': bool(exempt_pinned_messages),
-            'exempt_contacts': bool(exempt_contacts),
-            'exempt_location': bool(exempt_location),
-            'exempt_documents': bool(exempt_documents),
-            'exempt_voice': bool(exempt_voice),
-            'exempt_video_note': bool(exempt_video_note),
-            'exempt_poll': bool(exempt_poll),
-            'exempt_embed_link': bool(exempt_embed_link),
-            'exempt_links': bool(exempt_links)
-        }
-        await mongodb_manager.update_exemptions(chat_id, user_id, exemptions)
-    
-    async def get_user_exemptions(self, chat_id, user_id):
-        """Get user's exemption settings with caching"""
-        # Check cache first
-        cache_key = f"user_{chat_id}_{user_id}"
-        if hasattr(self, '_user_cache') and cache_key in self._user_cache:
-            return self._user_cache[cache_key]
-        
-        # Fetch from database
-        async with aiosqlite.connect(self.db_file) as db:
-            cursor = await db.execute(
-                'SELECT exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, exempt_links FROM approved_users WHERE chat_id = ? AND user_id = ?',
-                (chat_id, user_id)
-            )
-            row = await cursor.fetchone()
-            
-            if row:
-                exemptions = {
-                    'exempt_stickers': bool(row[0]),
-                    'exempt_media': bool(row[1]),
-                    'exempt_forwards': bool(row[2]),
-                    'exempt_commands': bool(row[3]),
-                    'exempt_premium_stickers': bool(row[4]),
-                    'exempt_channel_posts': bool(row[5]),
-                    'exempt_pinned_messages': bool(row[6]),
-                    'exempt_contacts': bool(row[7]),
-                    'exempt_location': bool(row[8]),
-                    'exempt_documents': bool(row[9]),
-                    'exempt_voice': bool(row[10]),
-                    'exempt_video_note': bool(row[11]),
-                    'exempt_poll': bool(row[12]),
-                    'exempt_embed_link': bool(row[13]),
-                    'exempt_links': bool(row[14]),
-                }
-                # Cache the result
-                if hasattr(self, '_user_cache'):
-                    self._user_cache[cache_key] = exemptions
-                return exemptions
-            return None
-    
-    async def remove_approved_user(self, chat_id, user_id):
-        """Remove user from approved list (SQLite + MongoDB) and clear cache"""
-        # Clear cache for this user
-        cache_key = f"user_{chat_id}_{user_id}"
-        if hasattr(self, '_user_cache') and cache_key in self._user_cache:
-            del self._user_cache[cache_key]
-        
-        # Remove from SQLite
-        async with aiosqlite.connect(self.db_file) as db:
-            await db.execute(
-                'DELETE FROM approved_users WHERE chat_id = ? AND user_id = ?',
-                (chat_id, user_id)
-            )
-            await db.commit()
-        
-        # Also remove from MongoDB
-        await mongodb_manager.remove_freed_member(chat_id, user_id)
-    
-    async def is_user_approved(self, chat_id, user_id):
-        """Check if user is approved"""
-        async with aiosqlite.connect(self.db_file) as db:
-            cursor = await db.execute(
-                'SELECT COUNT(*) FROM approved_users WHERE chat_id = ? AND user_id = ?',
-                (chat_id, user_id)
-            )
-            count = await cursor.fetchone()
-            return count[0] > 0
-    
-    async def get_approved_users_count(self, chat_id):
-        """Get count of approved users in a chat"""
-        async with aiosqlite.connect(self.db_file) as db:
-            cursor = await db.execute(
-                'SELECT COUNT(*) FROM approved_users WHERE chat_id = ?',
-                (chat_id,)
-            )
-            count = await cursor.fetchone()
-            return count[0]
-    
-    async def unapprove_all_users(self, chat_id):
-        """Remove all approved users from a chat"""
-        async with aiosqlite.connect(self.db_file) as db:
-            cursor = await db.execute(
-                'SELECT COUNT(*) FROM approved_users WHERE chat_id = ?',
-                (chat_id,)
-            )
-            count = await cursor.fetchone()
-            await db.execute(
-                'DELETE FROM approved_users WHERE chat_id = ?',
-                (chat_id,)
-            )
-            await db.commit()
-            return count[0]
 
 
 class ModerationBot:
@@ -424,10 +257,6 @@ class ModerationBot:
         """Initialize the bot application with optimizations"""
         # Initialize SQLite
         await self.db.initialize()
-        
-        # Initialize in-memory cache for faster lookups
-        self._settings_cache = {}
-        self._user_cache = {}
         
         # Initialize MongoDB (non-blocking)
         if mongodb_manager.connected:
@@ -798,7 +627,10 @@ class ModerationBot:
                     f"{'✅' if settings.get('block_pinned_messages', False) else '❌'} 📌 Pinned Messages",
                     callback_data="toggle_block_pinned_messages"
                 ),
+            ],
+            [
                 InlineKeyboardButton("⬅️ Back to Settings", callback_data="back_to_main_settings"),
+                InlineKeyboardButton("❌ Close", callback_data="close_settings"),
             ],
         ]
         return keyboard
@@ -853,6 +685,7 @@ class ModerationBot:
             # Row 5: Back Button
             [
                 InlineKeyboardButton("⬅️ Back to Settings", callback_data="back_to_main_settings"),
+                InlineKeyboardButton("❌ Close", callback_data="close_settings"),
             ],
         ]
         return keyboard
@@ -1096,7 +929,7 @@ class ModerationBot:
                 target_user_id = int(parts[2])
             
             # Get current exemptions
-            exemptions = await self.db.get_user_exemptions(chat_id, target_user_id)
+            exemptions = await mongodb_manager.get_user_exemptions(chat_id, target_user_id)
             if not exemptions:
                 await query.answer(style_text("User not found in approved list."), show_alert=True)
                 return
@@ -1106,24 +939,10 @@ class ModerationBot:
             exemptions[f'exempt_{exemption_type}'] = new_value
             
             # Update database
-            await self.db.update_user_exemptions(
+            await mongodb_manager.update_exemptions(
                 chat_id,
                 target_user_id,
-                exemptions['exempt_stickers'],
-                exemptions['exempt_media'],
-                exemptions['exempt_forwards'],
-                exemptions['exempt_commands'],
-                exemptions['exempt_premium_stickers'],
-                exemptions['exempt_channel_posts'],
-                exemptions.get('exempt_pinned_messages', False),
-                exemptions.get('exempt_contacts', False),
-                exemptions.get('exempt_location', False),
-                exemptions.get('exempt_documents', False),
-                exemptions.get('exempt_voice', False),
-                exemptions.get('exempt_video_note', False),
-                exemptions.get('exempt_poll', False),
-                exemptions.get('exempt_embed_link', False),
-                exemptions.get('exempt_links', False)
+                exemptions
             )
             
             # Update keyboard
@@ -1141,18 +960,13 @@ class ModerationBot:
             return
         
         # Handle close approval settings
-        if data == "close_approval" or data == "close_reload":
+        if data.startswith("close_approval_") or data == "close_approval" or data == "close_reload":
             await query.message.delete()
             return
             
         # Handle view freed users from reload command
         if data == "view_freed_users":
-            async with aiosqlite.connect(self.db.db_file) as db:
-                cursor = await db.execute(
-                    'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents, exempt_voice, exempt_video_note, exempt_poll, exempt_embed_link, exempt_links FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
-                    (chat_id,)
-                )
-                rows = await cursor.fetchall()
+            rows = await mongodb_manager.get_all_freed_members(chat_id)
             
             if not rows:
                 await query.answer("No freed members found.", show_alert=True)
@@ -1160,27 +974,30 @@ class ModerationBot:
                 
             text = f"👥 <b>Freed Members & Permissions ({len(rows)}):</b>\n\n"
             for i, row in enumerate(rows[:20], 1):  # Limit to 20 for message length
-                uid, name, uname, s, m, f, l, c, ps, cp, pin, con, loc, doc, voice, video_note, poll, embed_link, links = row
+                uid = row.get('user_id')
+                name = row.get('first_name', 'Unknown')
+                uname = row.get('username')
+                exemptions = row.get('exemptions', {})
+                
                 user_text = f"@{uname}" if uname else name
                 
                 # Format permissions - Only show what is enabled
                 perms = []
-                if s: perms.append("🚫 Stickers")
-                if m: perms.append("📸 Media")
-                if f: perms.append("↗️ Forwards")
-                if l: perms.append("🔗 Links")
-                if c: perms.append("⌨️ Commands")
-                if ps: perms.append("⭐ Premium")
-                if cp: perms.append("📢 Channel")
-                if pin: perms.append("📌 Pinned")
-                if con: perms.append("👤 Contact")
-                if loc: perms.append("📍 Location")
-                if doc: perms.append("📄 Document")
-                if voice: perms.append("🎤 Voice")
-                if video_note: perms.append("📹 Video Note")
-                if poll: perms.append("📊 Poll")
-                if embed_link: perms.append("🔗 Embed Link")
-                if links: perms.append("🌐 Links")
+                if exemptions.get('exempt_stickers'): perms.append("🚫 Stickers")
+                if exemptions.get('exempt_media'): perms.append("📸 Media")
+                if exemptions.get('exempt_forwards'): perms.append("↗️ Forwards")
+                if exemptions.get('exempt_links'): perms.append("🔗 Links")
+                if exemptions.get('exempt_commands'): perms.append("⌨️ Commands")
+                if exemptions.get('exempt_premium_stickers'): perms.append("⭐ Premium")
+                if exemptions.get('exempt_channel_posts'): perms.append("📢 Channel")
+                if exemptions.get('exempt_pinned_messages'): perms.append("📌 Pinned")
+                if exemptions.get('exempt_contacts'): perms.append("👤 Contact")
+                if exemptions.get('exempt_location'): perms.append("📍 Location")
+                if exemptions.get('exempt_documents'): perms.append("📄 Document")
+                if exemptions.get('exempt_voice'): perms.append("🎤 Voice")
+                if exemptions.get('exempt_video_note'): perms.append("📹 Video Note")
+                if exemptions.get('exempt_poll'): perms.append("📊 Poll")
+                if exemptions.get('exempt_embed_link'): perms.append("🔗 Embed Link")
                 
                 perms_str = ", ".join(perms) if perms else "None"
                 text += f"{i}. {user_text} (<code>{uid}</code>)\n   └ {perms_str}\n\n"
@@ -1188,10 +1005,15 @@ class ModerationBot:
             if len(rows) > 20:
                 text += f"<i>... and {len(rows) - 20} more.</i>"
             
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Back", callback_data="refresh_reload")],
+                [InlineKeyboardButton("❌ Close", callback_data="close_reload")]
+            ]
+            
             try:
                 await query.message.edit_text(
                     text,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="refresh_reload")]]),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='HTML'
                 )
             except Exception as e:
@@ -1206,7 +1028,7 @@ class ModerationBot:
                 admins = await context.bot.get_chat_administrators(chat_id)
                 admin_count = len(admins)
                 
-                freed_count = await self.db.get_approved_users_count(chat_id)
+                freed_count = await mongodb_manager.get_freed_members_count(chat_id)
                 
                 keyboard = [
                     [InlineKeyboardButton(f"👥 Freed Members: {freed_count}", callback_data="view_freed_users")],
@@ -1565,11 +1387,11 @@ class ModerationBot:
             return
             
         # Check if already approved
-        is_approved = await self.db.is_user_approved(chat.id, target_user.id)
+        is_approved = await mongodb_manager.is_user_freed(chat.id, target_user.id)
         
         try:
             if is_approved:
-                exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
+                exemptions = await mongodb_manager.get_user_exemptions(chat.id, target_user.id)
                 if not exemptions:
                     await self.send_auto_delete_message(
                         update.message,
@@ -1585,7 +1407,7 @@ class ModerationBot:
                 )
             else:
                 approved_by_id = user.id if user else 0
-                await self.db.add_approved_user(
+                await mongodb_manager.add_freed_member(
                     chat.id,
                     target_user.id,
                     target_user.username or "",
@@ -1593,7 +1415,7 @@ class ModerationBot:
                     approved_by_id
                 )
                 # Fetch the newly created exemptions
-                exemptions = await self.db.get_user_exemptions(chat.id, target_user.id)
+                exemptions = await mongodb_manager.get_user_exemptions(chat.id, target_user.id)
                 if not exemptions:
                     await self.send_auto_delete_message(
                         update.message,
@@ -1657,7 +1479,7 @@ class ModerationBot:
             )
             return
         
-        is_approved = await self.db.is_user_approved(chat.id, target_user.id)
+        is_approved = await mongodb_manager.is_user_freed(chat.id, target_user.id)
         if not is_approved:
             await self.send_auto_delete_message(
                 update.message,
@@ -1667,7 +1489,7 @@ class ModerationBot:
             )
             return
         
-        await self.db.remove_approved_user(chat.id, target_user.id)
+        await mongodb_manager.remove_freed_member(chat.id, target_user.id)
         await self.send_auto_delete_message(
             update.message,
             f"❌ {target_user.mention_html()} has been removed from freed list.",
@@ -1711,7 +1533,7 @@ class ModerationBot:
             admin_count = len(admins)
             
             # Get count of freed users
-            freed_count = await self.db.get_approved_users_count(chat.id)
+            freed_count = await mongodb_manager.get_freed_members_count(chat.id)
             
             # Create keyboard with freed users button
             keyboard = [
@@ -1760,12 +1582,7 @@ class ModerationBot:
             )
             return
         
-        async with aiosqlite.connect(self.db.db_file) as db:
-            cursor = await db.execute(
-                'SELECT user_id, first_name, username, exempt_stickers, exempt_media, exempt_forwards, exempt_commands, exempt_premium_stickers, exempt_channel_posts, exempt_pinned_messages, exempt_contacts, exempt_location, exempt_documents FROM approved_users WHERE chat_id = ? ORDER BY approved_at DESC',
-                (chat.id,)
-            )
-            rows = await cursor.fetchall()
+        rows = await mongodb_manager.get_all_freed_members(chat.id)
         
         if not rows:
             await self.send_auto_delete_message(
@@ -1778,22 +1595,30 @@ class ModerationBot:
         else:
             text = f"📋 <b>Freed Members ({len(rows)}):</b>\n\n"
             for i, row in enumerate(rows[:50], 1):  # Limit to 50 for message length
-                user_id, first_name, username, s, m, f, l, c, ps, cp, pin, con, loc, doc = row
+                user_id = row.get('user_id')
+                first_name = row.get('first_name', 'Unknown')
+                username = row.get('username')
+                exemptions = row.get('exemptions', {})
+                
                 user_text = f"@{username}" if username else first_name
                 
                 # Format permissions - Only show what is enabled
                 perms = []
-                if s: perms.append("🚫 Stickers")
-                if m: perms.append("📸 Media")
-                if f: perms.append("↗️ Forwards")
-                if l: perms.append("🔗 Links")
-                if c: perms.append("⌨️ Commands")
-                if ps: perms.append("⭐ Premium")
-                if cp: perms.append("📢 Channel")
-                if pin: perms.append("📌 Pinned")
-                if con: perms.append("👤 Contact")
-                if loc: perms.append("📍 Location")
-                if doc: perms.append("📄 Document")
+                if exemptions.get('exempt_stickers'): perms.append("🚫 Stickers")
+                if exemptions.get('exempt_media'): perms.append("📸 Media")
+                if exemptions.get('exempt_forwards'): perms.append("↗️ Forwards")
+                if exemptions.get('exempt_links'): perms.append("🔗 Links")
+                if exemptions.get('exempt_commands'): perms.append("⌨️ Commands")
+                if exemptions.get('exempt_premium_stickers'): perms.append("⭐ Premium")
+                if exemptions.get('exempt_channel_posts'): perms.append("📢 Channel")
+                if exemptions.get('exempt_pinned_messages'): perms.append("📌 Pinned")
+                if exemptions.get('exempt_contacts'): perms.append("👤 Contact")
+                if exemptions.get('exempt_location'): perms.append("📍 Location")
+                if exemptions.get('exempt_documents'): perms.append("📄 Document")
+                if exemptions.get('exempt_voice'): perms.append("🎤 Voice")
+                if exemptions.get('exempt_video_note'): perms.append("📹 Video Note")
+                if exemptions.get('exempt_poll'): perms.append("📊 Poll")
+                if exemptions.get('exempt_embed_link'): perms.append("🔗 Embed Link")
                 
                 perms_str = ", ".join(perms) if perms else "None"
                 text += f"{i}. {user_text} (<code>{user_id}</code>)\n   └ {perms_str}\n\n"
@@ -1855,7 +1680,7 @@ class ModerationBot:
             return
         
         # Get count before deleting
-        count = await self.db.get_approved_users_count(chat.id)
+        count = await mongodb_manager.get_freed_members_count(chat.id)
         
         if count == 0:
             await self.send_auto_delete_message(
@@ -1867,7 +1692,7 @@ class ModerationBot:
             return
         
         # Unapprove all users
-        removed_count = await self.db.unapprove_all_users(chat.id)
+        removed_count = await mongodb_manager.remove_all_freed_members(chat.id)
         
         await self.send_auto_delete_message(
             update.message,
@@ -1973,8 +1798,8 @@ class ModerationBot:
                         is_approved = False
                         exemptions = None
                         if user:
-                            is_approved = await self.db.is_user_approved(chat.id, user.id)
-                            exemptions = await self.db.get_user_exemptions(chat.id, user.id) if is_approved else None
+                            is_approved = await mongodb_manager.is_user_freed(chat.id, user.id)
+                            exemptions = await mongodb_manager.get_user_exemptions(chat.id, user.id) if is_approved else None
                         if not (exemptions and exemptions.get('exempt_commands', False)):
                             await self.send_auto_delete_message(
                                 message,
@@ -1994,8 +1819,8 @@ class ModerationBot:
         
         if user:
             # Check if user is approved and get exemptions
-            is_approved = await self.db.is_user_approved(chat.id, user.id)
-            exemptions = await self.db.get_user_exemptions(chat.id, user.id) if is_approved else None
+            is_approved = await mongodb_manager.is_user_freed(chat.id, user.id)
+            exemptions = await mongodb_manager.get_user_exemptions(chat.id, user.id) if is_approved else None
         
         # Check channel post blocking
         # Only block messages from CHANNELS, allow messages from GROUPS
