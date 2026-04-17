@@ -198,10 +198,10 @@ class MongoDBManager:
             return False
         
         try:
-            result = self.freed_members.delete_one({
-                'chat_id': chat_id,
-                'user_id': user_id
-            })
+            result = await asyncio.to_thread(
+                self.freed_members.delete_one,
+                {'chat_id': chat_id, 'user_id': user_id}
+            )
             
             if result.deleted_count > 0:
                 logger.info(f"✅ Freed member removed from MongoDB: {user_id} in {chat_id}")
@@ -223,12 +223,10 @@ class MongoDBManager:
             return []
         
         try:
-            members = list(
-                self.freed_members.find({'chat_id': chat_id})
-                .sort('approved_at', -1)
+            cursor = await asyncio.to_thread(
+                lambda: list(self.freed_members.find({'chat_id': chat_id}).sort('approved_at', -1))
             )
-            
-            return members
+            return cursor
             
         except PyMongoError as e:
             logger.error(f"❌ Error getting freed members from MongoDB: {e}")
@@ -243,7 +241,10 @@ class MongoDBManager:
             return 0
         
         try:
-            count = self.freed_members.count_documents({'chat_id': chat_id})
+            count = await asyncio.to_thread(
+                self.freed_members.count_documents,
+                {'chat_id': chat_id}
+            )
             return count
             
         except PyMongoError as e:
@@ -259,7 +260,10 @@ class MongoDBManager:
             return 0
         
         try:
-            result = self.freed_members.delete_many({'chat_id': chat_id})
+            result = await asyncio.to_thread(
+                self.freed_members.delete_many,
+                {'chat_id': chat_id}
+            )
             deleted_count = result.deleted_count
             
             logger.info(f"✅ Removed {deleted_count} freed members from MongoDB: {chat_id}")
@@ -278,10 +282,10 @@ class MongoDBManager:
             return False
         
         try:
-            count = self.freed_members.count_documents({
-                'chat_id': chat_id,
-                'user_id': user_id
-            })
+            count = await asyncio.to_thread(
+                self.freed_members.count_documents,
+                {'chat_id': chat_id, 'user_id': user_id}
+            )
             return count > 0
             
         except PyMongoError as e:
@@ -297,10 +301,10 @@ class MongoDBManager:
             return None
         
         try:
-            member = self.freed_members.find_one({
-                'chat_id': chat_id,
-                'user_id': user_id
-            })
+            member = await asyncio.to_thread(
+                self.freed_members.find_one,
+                {'chat_id': chat_id, 'user_id': user_id}
+            )
             
             if member:
                 return member.get('exemptions', {})
